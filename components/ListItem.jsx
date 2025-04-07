@@ -96,9 +96,18 @@ const ListItem = ({ item }) => {
 
   // Handle delete listing
   const handleDelete = async () => {
-    if (!product_id || !slug) {
-      console.error("Product ID or slug is missing", { product_id, slug });
-      alert("Cannot delete listing: Missing required information");
+    // Log all item properties to debug
+    console.log("Item properties:", {
+      product_id,
+      slug,
+      title,
+      seller_id,
+      user: user ? user.id : null,
+    });
+
+    if (!product_id) {
+      console.error("Product ID is missing", { product_id });
+      alert("Cannot delete listing: Missing product ID");
       return;
     }
 
@@ -117,24 +126,59 @@ const ListItem = ({ item }) => {
 
     setIsDeleting(true);
     try {
+      // Generate a slug from title if it's undefined
+      // Make sure to remove any trailing hyphens
+      const urlSlug =
+        slug ||
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "") // Remove leading and trailing hyphens
+          .slice(0, 25);
+
       // Log the request details
       console.log("Deleting listing:", {
         product_id,
-        slug,
-        url: `/api/listings/${slug}/${product_id}/`,
+        slug: urlSlug,
+        url: `/api/listings/${urlSlug}/${product_id}/`,
       });
 
-      const response = await api.delete(`/api/listings/${slug}/${product_id}/`);
-      console.log("Delete response:", response);
+      // Try the endpoint with just the product_id first
+      try {
+        const response = await api.delete(`/api/listings/${product_id}/`);
+        console.log("Delete response (product_id only):", response);
 
-      // Show success message
-      alert("Listing deleted successfully");
+        // Show success message
+        alert("Listing deleted successfully");
 
-      // Close the delete confirmation dialog
-      setShowDeleteConfirm(false);
+        // Close the delete confirmation dialog
+        setShowDeleteConfirm(false);
 
-      // Redirect to listings page
-      router.push("/listings");
+        // Redirect to listings page
+        router.push("/listings");
+        return;
+      } catch (productIdError) {
+        console.log(
+          "Failed with product_id only, trying with slug:",
+          productIdError
+        );
+
+        // If that fails, try with both slug and product_id
+        const response = await api.delete(
+          `/api/listings/${urlSlug}/${product_id}/`
+        );
+
+        console.log("Delete response (with slug):", response);
+
+        // Show success message
+        alert("Listing deleted successfully");
+
+        // Close the delete confirmation dialog
+        setShowDeleteConfirm(false);
+
+        // Redirect to listings page
+        router.push("/listings");
+      }
     } catch (error) {
       console.error("Error deleting listing:", error);
 
@@ -142,21 +186,16 @@ const ListItem = ({ item }) => {
       let errorMessage = "Failed to delete listing";
 
       if (error.response) {
-        console.log("Error response:", error.response);
+        console.error("Error response:", error.response);
 
         if (error.response.status === 404) {
-          errorMessage = "Listing not found";
+          errorMessage = "Listing not found. It may have been already deleted.";
         } else if (error.response.status === 403) {
-          errorMessage = "You don't have permission to delete this listing";
+          errorMessage = "You don't have permission to delete this listing.";
         } else if (error.response.status === 401) {
-          errorMessage = "Please log in to delete this listing";
+          errorMessage = "Please log in to delete this listing.";
           router.push("/auth/signin");
-        } else if (error.response.status === 500) {
-          errorMessage = "Server error. Please try again later";
-        }
-
-        // Use error message from response if available
-        if (error.response.data?.detail) {
+        } else if (error.response.data?.detail) {
           errorMessage = error.response.data.detail;
         }
       }
@@ -291,7 +330,6 @@ const ListItem = ({ item }) => {
         </span>
       </div>
 
-      {/* Owner Actions */}
       {isOwner && (
         <div className="absolute top-5 left-5 z-10 flex space-x-2">
           <button
@@ -308,7 +346,7 @@ const ListItem = ({ item }) => {
             </svg>
             Edit
           </button>
-          <button
+          {/*<button
             onClick={() => setShowDeleteConfirm(true)}
             className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
           >
@@ -325,11 +363,10 @@ const ListItem = ({ item }) => {
               />
             </svg>
             Delete
-          </button>
+          </button>*/}
         </div>
       )}
 
-      {/* Thumbnail Image Carousel */}
       <div className="mb-4 relative max-w-2xl mx-auto px-4 py-4">
         {arrangedImages.length > 0 ? (
           <Slider {...settings} className="rounded-md overflow-hidden">
@@ -399,14 +436,12 @@ const ListItem = ({ item }) => {
         </div>
       </div>
 
-      {/* Image Preview Modal */}
       <Dialog
         open={isOpen}
         onClose={() => setIsOpen(false)}
         className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70"
       >
         <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 relative z-50">
-          {/* Close Button */}
           <button
             onClick={() => setIsOpen(false)}
             className="absolute top-4 right-4 bg-gray-100 hover:bg-gray-200 rounded-full p-4 z-50"
@@ -414,7 +449,6 @@ const ListItem = ({ item }) => {
             ✕
           </button>
 
-          {/* Fullscreen Image Carousel */}
           <Slider
             {...settings}
             initialSlide={selectedIndex}
@@ -442,7 +476,6 @@ const ListItem = ({ item }) => {
             )}
           </Slider>
 
-          {/* Thumbnail Navigation - Only show if there's more than one image */}
           {arrangedImages.length > 1 && (
             <div className="flex justify-center mt-4">
               {arrangedImages.map((image, index) => (
@@ -468,7 +501,6 @@ const ListItem = ({ item }) => {
         </div>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog
         open={showDeleteConfirm}
         onClose={() => !isDeleting && setShowDeleteConfirm(false)}

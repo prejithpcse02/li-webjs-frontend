@@ -34,8 +34,8 @@ const SignInPage = () => {
 
     try {
       await login(email, password);
-      // Redirect to listings page after successful login
-      router.push("/listings");
+      // The login function in AuthContext will handle the redirection to listings page on success
+      // If login fails, it will set an error and stay on the signin page
     } catch (err) {
       // Error is handled by auth context and displayed via the error state
       console.error("Login failed:", err);

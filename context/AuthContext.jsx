@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }) => {
       const userData = await authAPI.getProfile();
       setUser(userData);
 
-      router.push("/");
+      router.push("/listings");
     } catch (err) {
       console.error("Login error:", err);
       if (axios.isAxiosError(err)) {
