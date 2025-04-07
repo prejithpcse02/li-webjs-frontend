@@ -20,16 +20,18 @@ const ListingsContent = () => {
 
   useEffect(() => {
     // If not authenticated and not loading, redirect to login
-    if (!authLoading && !user) {
+    /*if (!authLoading && !user) {
       router.push("/auth/signin");
       return;
-    }
+    }*/
 
     // Only fetch data if user is authenticated
-    if (user) {
+    /*if (user) {
       fetchData();
-    }
-  }, [user, authLoading, router]);
+    }*/
+    fetchData();
+  }, []);
+  //user, authLoading, router
 
   // Enhanced useEffect to handle multiple ways of opening the modal
   useEffect(() => {
