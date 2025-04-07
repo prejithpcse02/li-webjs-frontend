@@ -122,3 +122,26 @@ export const AuthProvider = ({ children }) => {
 };
 
 export default AuthContext;
+
+{
+  /*
+{isOwner && (
+  <div className="absolute top-2 left-2 z-50 flex space-x-2">
+    <button
+      onClick={handleEdit}
+      className="bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-full shadow-md"
+      title="Edit Listing"
+    >
+      <FiEdit2 className="h-4 w-4" />
+    </button>
+    <button
+      onClick={() => setShowDeleteConfirm(true)}
+      className="bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md"
+      title="Delete Listing"
+    >
+      <FiTrash2 className="h-4 w-4" />
+    </button>
+  </div>
+)}
+*/
+}

@@ -16,12 +16,7 @@ const nextConfig = {
       },
       {
         protocol: "https",
-        hostname: "**",
-        pathname: "/media/**",
-      },
-      {
-        protocol: "http",
-        hostname: "**",
+        hostname: "backend-deployment-li-1.onrender.com",
         pathname: "/media/**",
       },
     ],

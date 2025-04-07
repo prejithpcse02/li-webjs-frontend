@@ -27,7 +27,7 @@ export default function ProfilePage({ params }) {
         setProfile(response.data);
         // Fetch user's listings
         const listingsResponse = await api.get(
-          `/api/listings/?seller=${response.data.id}`
+          `/api/listings/?seller=${response.data.id}&include_likes=true`
         );
         setListings(listingsResponse.data);
       } catch (error) {

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import LikeButton from "./LikeButton";
 import axios from "axios";
 
-const ListingCard = ({ item, isAuthenticated }) => {
+const ListingCard = ({ item }) => {
   const {
     product_id,
     slug,
@@ -16,47 +16,98 @@ const ListingCard = ({ item, isAuthenticated }) => {
     status,
     created_at,
     seller_name,
-    seller_id,
     images,
+    main_image,
     is_liked: initialIsLiked,
     likes_count: initialLikesCount,
   } = item;
 
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [isLiked, setIsLiked] = useState(initialIsLiked);
+  const [imageError, setImageError] = useState(false);
 
   const handleLikeChange = async (newIsLiked) => {
-    if (!isAuthenticated) {
-      // Redirect to login if not authenticated
-      window.location.href = "/auth/signin";
-      return;
-    }
     setIsLiked(newIsLiked);
     setLikesCount((prev) => (newIsLiked ? prev + 1 : prev - 1));
+  };
+
+  // Get image URL with safety check - prioritize main_image over images array
+  const getImageUrl = () => {
+    // First try to use main_image if available
+    if (main_image) {
+      console.log(`Using main_image for listing ${product_id}: ${main_image}`);
+      return main_image;
+    }
+
+    // Check if there's a primary image in the images array
+    if (images && images.length > 0) {
+      const primaryImage = images.find((img) => img.is_primary === true);
+      if (primaryImage && primaryImage.image_url) {
+        console.log(
+          `Using primary image for listing ${product_id}: ${primaryImage.image_url}`
+        );
+        const url = primaryImage.image_url;
+        if (url.startsWith("http") || url.startsWith("/")) {
+          return url;
+        } else {
+          return `/${url}`;
+        }
+      }
+
+      // Fall back to first image in the array
+      if (images[0].image_url) {
+        console.log(
+          `Using first image for listing ${product_id}: ${images[0].image_url}`
+        );
+        const url = images[0].image_url;
+        if (url.startsWith("http") || url.startsWith("/")) {
+          return url;
+        } else {
+          return `/${url}`;
+        }
+      }
+    }
+
+    // Log the problem and use fallback
+    console.log(`No image found for listing ${product_id}, using placeholder`);
+    // Fallback to placeholder
+    return "/placeholder-image.jpg";
   };
 
   return (
     <div className="w-full">
       <div className="h-full bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200 border-[1px] border-gray-300 shadow-gray-200 overflow-hidden z-30">
         <div className="relative aspect-square">
-          {isAuthenticated && (
-            <div className="absolute top-2 right-2 z-50">
-              <LikeButton
-                slug={slug}
-                listingId={product_id}
-                initialIsLiked={isLiked}
-                onLikeChange={handleLikeChange}
-              />
-            </div>
-          )}
-          <Link href={`/listings/${slug}/${product_id}`}>
-            <Image
-              src={images[0].image_url}
-              alt={title}
-              fill
-              className="object-contain"
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+          <div className="absolute top-2 right-2 z-40">
+            <LikeButton
+              slug={slug}
+              listingId={product_id}
+              initialIsLiked={isLiked}
+              onLikeChange={handleLikeChange}
             />
+          </div>
+          <Link
+            href={`/listings/${
+              slug ||
+              title?.toLowerCase().replace(/\s+/g, "-").slice(0, 25) ||
+              "item"
+            }/${product_id}`}
+          >
+            {imageError ? (
+              <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+                <span>No image</span>
+              </div>
+            ) : (
+              <img
+                src={getImageUrl()}
+                alt={title}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  console.error(`Image error for ${product_id}:`, e);
+                  setImageError(true);
+                }}
+              />
+            )}
           </Link>
         </div>
         <div className="p-4">
