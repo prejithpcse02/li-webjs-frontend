@@ -132,7 +132,7 @@ const ProfilePage = () => {
       <div className="my-2 ml-4 z-10">
         <button
           onClick={handleBackToListings}
-          className="flex items-center text-blue-500 hover:text-blue-700 font-medium"
+          className="hidden md:flex items-center text-blue-500 hover:text-blue-700 font-medium "
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

@@ -78,7 +78,7 @@ const ListingCard = ({ item }) => {
     <div className="w-full">
       <div className="h-full bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200 border-[1px] border-gray-300 shadow-gray-200 overflow-hidden z-30">
         <div className="relative aspect-square">
-          <div className="absolute top-2 right-2 z-40">
+          <div className="absolute top-2 right-2 z-40 p-[1px] bg-gray-100 rounded-full">
             <LikeButton
               slug={slug}
               listingId={product_id}
