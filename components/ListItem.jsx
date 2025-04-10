@@ -334,7 +334,7 @@ const ListItem = ({ item }) => {
         <div className="absolute top-5 left-5 z-10 flex space-x-2">
           <button
             onClick={handleEdit}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
+            className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm flex items-center cursor-pointer"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -434,6 +434,11 @@ const ListItem = ({ item }) => {
           <p className="text-gray-600 font-semibold">Pickup Location</p>
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
+        <button className="bg-blue-700 text-white px-4 py-2 rounded-md w-fit mt-4 cursor-pointer hover:bg-blue-600">
+          <span className="text-sm sm:text-md font-medium capitalize">
+            Make Offer
+          </span>
+        </button>
       </div>
 
       <Dialog

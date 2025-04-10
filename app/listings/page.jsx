@@ -148,7 +148,7 @@ const ListingsContent = () => {
         onSuccess={handleAddListingSuccess}
       />
 
-      <main className="container mx-auto px-2 py-4 sm:px-6 sm:py-8 w-full bg-white z-0 mt-8">
+      <main className="container mx-auto px-2 py-4 sm:px-6 sm:py-8 w-full bg-white z-0 mt-12">
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-gray-800">
             Latest Listings
