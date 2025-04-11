@@ -93,20 +93,31 @@ const ListingCard = ({ item }) => {
               "item"
             }/${product_id}`}
           >
-            {imageError ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
-                <span>No image</span>
-              </div>
-            ) : (
+            {!imageError ? (
               <img
                 src={getImageUrl()}
                 alt={title}
-                className="w-full h-full object-contain"
-                onError={(e) => {
-                  console.error(`Image error for ${product_id}:`, e);
-                  setImageError(true);
+                style={{
+                  width: "100%",
+                  height: "auto",
+                  objectFit: "cover",
+                  borderRadius: "8px",
                 }}
+                onError={() => setImageError(true)}
               />
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  height: "200px",
+                  backgroundColor: "#f0f0f0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <span>No Image Available</span>
+              </div>
             )}
           </Link>
         </div>

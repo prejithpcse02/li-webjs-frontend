@@ -16,8 +16,13 @@ const nextConfig = {
       },
       {
         protocol: "https",
-        hostname: "backend-deployment-li-1.onrender.com",
+        hostname: "backend-deployment-li-2.onrender.com",
         pathname: "/media/**",
+      },
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+        pathname: "/dn1fp5v93/image/upload/**",
       },
     ],
     unoptimized: true,
