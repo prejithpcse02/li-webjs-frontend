@@ -324,7 +324,7 @@ const ListItem = ({ item }) => {
 
   return (
     <div className="max-w-6xl mx-auto bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 p-4 sm:p-6 md:p-8 relative">
-      <div className="bg-green-600 text-white px-4 py-2 rounded-md w-fit absolute right-5 top-5 z-10">
+      <div className="bg-green-600 text-white px-3 py-1.5 rounded-md w-fit absolute right-5 top-4 z-10 flex justify-center items-center">
         <span className="text-sm sm:text-md font-medium capitalize">
           {status}
         </span>
@@ -400,8 +400,8 @@ const ListItem = ({ item }) => {
         {title}
       </h1>
       <div className="p-4 border rounded-lg bg-gray-50">
-        <div className="flex flex-col sm:flex-row sm:justify-between gap-2 text-sm sm:text-base">
-          <span className="text-gray-600 font-semibold">
+        <div className="flex flex-col sm:flex-row sm:justify-between gap-4 text-sm sm:text-base">
+          <span className="text-gray-600 font-semibold mt-2">
             Listed on:{" "}
             <span className="font-light">
               {new Date(created_at).toLocaleDateString()}
@@ -434,7 +434,7 @@ const ListItem = ({ item }) => {
           <p className="text-gray-600 font-semibold">Pickup Location</p>
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
-        <button className="bg-blue-700 text-white px-4 py-2 rounded-md w-fit mt-4 cursor-pointer hover:bg-blue-600">
+        <button className="bg-blue-700 text-white px-4 py-2 rounded-md w-fit mt-4 cursor-pointer hover:bg-blue-600 flex justify-center items-center">
           <span className="text-sm sm:text-md font-medium capitalize">
             Make Offer
           </span>

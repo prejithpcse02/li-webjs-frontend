@@ -138,8 +138,13 @@ const ListingCard = ({ item }) => {
             </div>
           </div>
           <div className="flex flex-row justify-between items-center mt-2 text-xs text-gray-500">
-            <span className="text-gray-600 max-w-[45%]">{location}</span>
-            <span className="font-semibold text-gray-800">
+            <span
+              className="text-gray-600 max-w-[55%] truncate"
+              title={location}
+            >
+              {location}
+            </span>
+            <span className="font-semibold text-gray-800 ml-2">
               {new Date(created_at).toLocaleDateString()}
             </span>
           </div>

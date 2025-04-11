@@ -189,9 +189,9 @@ const ProfilePage = () => {
                 <span className="text-sm">Verified</span>
               </div>
             )}
-            <button className="mt-4 w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors">
+            {/*<button className="mt-4 w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors">
               Edit Profile
-            </button>
+            </button>*/}
           </div>
           <div className="mt-6">
             <h3 className="text-lg font-semibold mb-2">Account Details</h3>

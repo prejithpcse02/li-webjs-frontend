@@ -86,10 +86,10 @@ const Page = () => {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="mt-20 ml-4 z-10">
+      <div className="mt-20 mb-4 ml-4 z-10">
         <button
           onClick={handleBackToListings}
-          className="hidden md:flex items-center text-blue-500 hover:text-blue-700 font-medium "
+          className="flex items-center text-blue-500 hover:text-blue-700 font-medium "
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
