@@ -86,7 +86,7 @@ const Page = () => {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="mt-20 mb-4 ml-4 z-10">
+      <div className="pt-20 mb-2 ml-4 z-10">
         <button
           onClick={handleBackToListings}
           className="flex items-center text-blue-500 hover:text-blue-700 font-medium "

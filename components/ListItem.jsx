@@ -325,7 +325,7 @@ const ListItem = ({ item }) => {
   return (
     <div className="max-w-6xl mx-auto bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 p-4 sm:p-6 md:p-8 relative">
       <div className="bg-green-600 text-white px-3 py-1.5 rounded-md w-fit absolute right-5 top-4 z-10 flex justify-center items-center">
-        <span className="text-sm sm:text-md font-medium capitalize">
+        <span className="text-sm sm:text-md font-medium capitalize flex items-center">
           {status}
         </span>
       </div>
@@ -435,7 +435,7 @@ const ListItem = ({ item }) => {
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
         <button className="bg-blue-700 text-white px-4 py-2 rounded-md w-fit mt-4 cursor-pointer hover:bg-blue-600 flex justify-center items-center">
-          <span className="text-sm sm:text-md font-medium capitalize">
+          <span className="text-sm sm:text-md font-medium capitalize flex items-center">
             Make Offer
           </span>
         </button>

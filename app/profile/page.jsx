@@ -149,7 +149,7 @@ const ProfilePage = () => {
           Back to Listings
         </button>
       </div>
-      <div className="flex flex-col md:flex-row h-screen p-4 md:p-6 gap-4 bg-gray-50">
+      <div className="flex flex-col md:flex-row h-screen p-2 md:p-6 gap-4 bg-gray-50">
         {/* Left Panel */}
         <div className="w-full md:w-1/4 bg-white p-4 md:p-6 rounded-2xl shadow-lg">
           <div className="flex flex-col items-center text-center">
@@ -230,7 +230,7 @@ const ProfilePage = () => {
             ))}
           </div>
 
-          <div className="p-2 rounded-lg bg-gray-50">
+          <div className="rounded-lg bg-gray-50">
             {activeTab === "Listings" && (
               <div>
                 {listings.length === 0 ? (
@@ -238,7 +238,7 @@ const ProfilePage = () => {
                     <p className="text-gray-500">No listings found</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-2">
                     {listings.map((item) => (
                       <ListingCard key={item.product_id} item={item} />
                     ))}

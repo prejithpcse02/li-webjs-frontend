@@ -113,9 +113,9 @@ const LikedListings = () => {
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-gray-100 py-8">
+      <div className="min-h-screen bg-gray-100 pt-8 pb-12">
         <div className="container mx-auto px-4">
-          <h1 className="text-xl font-semibold text-gray-800 mb-8 sm:mb-6">
+          <h1 className="text-xl font-semibold text-gray-800 mb-4">
             Your Liked Listings
           </h1>
           {listings.length === 0 ? (
