@@ -11,29 +11,67 @@ export default function ChatDetailPage() {
   const router = useRouter();
   const { conversationId } = useParams();
   const { user } = useAuth();
-
+  const [isLoading, setIsLoading] = useState(true);
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [offerAmount, setOfferAmount] = useState("");
   const [showOfferInput, setShowOfferInput] = useState(false);
+  const [pendingOffer, setPendingOffer] = useState(null);
   const bottomRef = useRef(null);
 
-  // Fetch conversation + messages
+  // Fetch conversation + messages and set initial offer amount
   useEffect(() => {
     if (conversationId) {
-      api
-        .get(`/api/chat/conversations/${conversationId}/`)
-        .then((res) => setConversation(res.data));
-      api
-        .get(`/api/chat/conversations/${conversationId}/messages/`)
-        .then((res) => setMessages(res.data));
+      setIsLoading(true);
+      Promise.all([
+        api.get(`/api/chat/conversations/${conversationId}/`),
+        api.get(`/api/chat/conversations/${conversationId}/messages/`),
+      ])
+        .then(([convRes, msgRes]) => {
+          setConversation(convRes.data);
+          setMessages(msgRes.data);
+          // Set initial offer amount to listing price
+          setOfferAmount(convRes.data?.listing?.price?.toString() || "");
+          // Find pending offer if exists
+          const latestPendingOffer =
+            msgRes.data
+              .filter((msg) => msg.is_offer && msg.offer?.status === "Pending")
+              .pop()?.offer || null;
+          setPendingOffer(latestPendingOffer);
+        })
+        .catch((error) => {
+          console.error("Failed to fetch chat data:", error);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
     }
   }, [conversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Cancel offer
+  const cancelOffer = async (offerId) => {
+    try {
+      await api.post(`/api/offers/${offerId}/cancel/`);
+      const refreshed = await api.get(
+        `/api/chat/conversations/${conversationId}/messages/`
+      );
+      setMessages(refreshed.data);
+      setPendingOffer(null);
+    } catch (err) {
+      console.error("Failed to cancel offer", err);
+    }
+  };
+
+  // Validate offer amount
+  const isValidOffer = (amount) => {
+    const numAmount = parseFloat(amount);
+    return !isNaN(numAmount) && numAmount > 0;
+  };
 
   // Submit a message (plain or offer)
   const sendMessage = async (isOffer = false, offerAmount = null) => {
@@ -42,24 +80,28 @@ export default function ChatDetailPage() {
 
     try {
       if (isOffer) {
+        if (!isValidOffer(offerAmount)) {
+          alert("Please enter a valid offer amount greater than 0");
+          return;
+        }
         // Create message with offer
         const res = await api.post("/api/chat/messages/", {
           conversation: conversationId,
-          sender_id: user.id,
-          content: `Made offer: ₹${offerAmount}`,
+          sender_id: user?.id,
+          content: `Made offer: A$${offerAmount}`,
           message_type: "text",
           is_offer: true,
           price: offerAmount,
         });
 
         setMessages((prev) => [...prev, res.data]);
+        setPendingOffer(res.data.offer);
         setShowOfferInput(false);
-        setOfferAmount("");
       } else {
         // Create regular message
         const res = await api.post("/api/chat/messages/", {
           conversation: conversationId,
-          sender_id: user.id,
+          sender_id: user?.id,
           content: trimmed,
           message_type: "text",
         });
@@ -75,15 +117,19 @@ export default function ChatDetailPage() {
   // Respond to offer (accept/reject)
   const respondToOffer = async (offerId, newStatus) => {
     try {
-      console.log(`Responding to offer ${offerId} with status ${newStatus}`);
-      // Use 'accept' or 'reject' instead of 'Accepted' or 'Rejected'
+      // Check if user is the seller
+      if (user?.id !== conversation?.listing?.seller_id) {
+        throw new Error("Only the listing owner can respond to offers");
+      }
+
       const action = newStatus === "Accepted" ? "accept" : "reject";
       const endpoint = `/api/offers/${offerId}/${action}/`;
-      console.log("Calling endpoint:", endpoint);
 
-      // Call the appropriate endpoint based on the action
       const response = await api.post(endpoint);
-      console.log("Response:", response.data);
+
+      if (!response.data) {
+        throw new Error("Failed to update offer status");
+      }
 
       // Refresh messages to show the updated offer status
       const refreshed = await api.get(
@@ -92,11 +138,7 @@ export default function ChatDetailPage() {
       setMessages(refreshed.data);
     } catch (err) {
       console.error("Failed to respond to offer", err);
-      console.error("Error details:", {
-        status: err.response?.status,
-        data: err.response?.data,
-        endpoint: err.config?.url,
-      });
+      alert(err.message || "Failed to respond to offer. Please try again.");
     }
   };
 
@@ -109,16 +151,10 @@ export default function ChatDetailPage() {
 
   const MessageBubble = ({ msg, isMe }) => {
     const isOffer = msg.is_offer && msg.offer;
+    const isSeller = user?.id === conversation?.listing?.seller_id;
 
     if (isOffer && msg.offer) {
       const offer = msg.offer;
-      console.log("Rendering offer message:", {
-        messageId: msg.id,
-        offerId: offer?.id,
-        offerStatus: offer?.status,
-        isMe: isMe,
-        isSeller: user?.id === conversation?.listing?.seller_id,
-      });
 
       // Determine the background color based on offer status
       const getStatusColor = () => {
@@ -137,28 +173,27 @@ export default function ChatDetailPage() {
           <div
             className={`${getStatusColor()} border p-4 rounded-lg text-center shadow-sm max-w-sm w-full`}
           >
-            <p className="text-md font-bold mb-1">Offer: ₹{offer?.price}</p>
+            <p className="text-md font-bold mb-1">Offer: A${offer?.price}</p>
             <p className="text-sm">
               Status: <span className="font-semibold">{offer?.status}</span>
             </p>
             {/* Only show accept/reject buttons if user is the seller and offer is pending */}
-            {user?.id === conversation?.listing?.seller_id &&
-              offer?.status === "Pending" && (
-                <div className="flex justify-center mt-3 gap-2">
-                  <button
-                    onClick={() => respondToOffer(offer?.id, "Accepted")}
-                    className="bg-green-600 text-white px-3 py-1 rounded-md"
-                  >
-                    Accept
-                  </button>
-                  <button
-                    onClick={() => respondToOffer(offer?.id, "Rejected")}
-                    className="bg-red-500 text-white px-3 py-1 rounded-md"
-                  >
-                    Decline
-                  </button>
-                </div>
-              )}
+            {isSeller && offer?.status === "Pending" && (
+              <div className="flex justify-center mt-3 gap-2">
+                <button
+                  onClick={() => respondToOffer(offer?.id, "Accepted")}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={() => respondToOffer(offer?.id, "Rejected")}
+                  className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                >
+                  Decline
+                </button>
+              </div>
+            )}
             <p className="text-xs mt-2 opacity-70">
               {dayjs(msg.created_at).format("h:mm A")}
             </p>
@@ -190,6 +225,18 @@ export default function ChatDetailPage() {
       </div>
     );
   };
+
+  if (isLoading || !user) {
+    return (
+      <div className="flex justify-center min-h-screen bg-gray-50">
+        <div className="w-full max-w-[480px] bg-white shadow-lg p-4">
+          <div className="flex items-center justify-center h-screen">
+            <div className="text-gray-500">Loading...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex justify-center min-h-screen bg-gray-50">
@@ -242,30 +289,56 @@ export default function ChatDetailPage() {
                 )}
               </div>
             </div>
-            <div className="flex gap-2 mt-3">
-              {console.log("Debug info:", {
-                currentUserId: user.id,
-                sellerId: conversation?.listing?.seller_id,
-                isSeller: user.id === conversation?.listing?.seller_id,
-                conversation: conversation,
-              })}
-              {user.id !== conversation?.listing?.seller_id && (
-                <button
-                  onClick={() => setShowOfferInput(true)}
-                  className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
-                >
-                  Make offer
-                </button>
-              )}
-              <button className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700">
-                ₹ {conversation?.listing?.price}
-              </button>
-              {user.id !== conversation?.listing?.seller_id && (
-                <button className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200">
-                  Amend offer
-                </button>
-              )}
-            </div>
+
+            {/* Buyer's Action Bar */}
+            {user?.id !== conversation?.listing?.seller_id && (
+              <div className="mt-3">
+                {!pendingOffer ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                        A$
+                      </span>
+                      <input
+                        type="number"
+                        value={offerAmount}
+                        onChange={(e) => setOfferAmount(e.target.value)}
+                        className="w-full py-2 pl-8 pr-3 bg-gray-100 rounded text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter amount"
+                      />
+                    </div>
+                    <button
+                      onClick={() => sendMessage(true, offerAmount)}
+                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                      disabled={!isValidOffer(offerAmount)}
+                    >
+                      Make offer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => cancelOffer(pendingOffer.id)}
+                      className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
+                    >
+                      Cancel offer
+                    </button>
+                    <button className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700">
+                      A$ {pendingOffer.price}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOfferAmount(pendingOffer.price.toString());
+                        setShowOfferInput(true);
+                      }}
+                      className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
+                    >
+                      Amend offer
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

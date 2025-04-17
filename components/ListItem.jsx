@@ -111,6 +111,10 @@ const ListItem = ({ item }) => {
     }
   };
 
+  const handleViewChats = () => {
+    router.push(`/chat?listing=${product_id}`);
+  };
+
   // Handle delete listing
   const handleDelete = async () => {
     // Log all item properties to debug
@@ -451,12 +455,37 @@ const ListItem = ({ item }) => {
           <p className="text-gray-600 font-semibold">Pickup Location</p>
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
-        <button
-          onClick={handleStartChat}
-          className="bg-blue-700 text-white px-4 py-2 rounded-md mt-4 hover:bg-blue-600"
-        >
-          Make Offer
-        </button>
+        <div className="flex gap-2 mt-4">
+          {isOwner ? (
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={handleEdit}
+                className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex-1 bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600"
+              >
+                Delete
+              </button>
+              <button
+                onClick={handleViewChats}
+                className="flex-1 bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600"
+              >
+                Chats ({item.conversation_count || 0})
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleStartChat}
+              className="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
+            >
+              Chat with Seller
+            </button>
+          )}
+        </div>
       </div>
 
       <Dialog
