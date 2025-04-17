@@ -36,8 +36,12 @@ export const AuthProvider = ({ children }) => {
         setUser(userData);
       } catch (err) {
         console.error("Error fetching user profile:", err);
-        localStorage.removeItem("token");
-        localStorage.removeItem("refreshToken");
+        // Clear tokens if there's an authentication error
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("refreshToken");
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -69,6 +73,7 @@ export const AuthProvider = ({ children }) => {
       } else {
         setError("An unexpected error occurred");
       }
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -88,6 +93,7 @@ export const AuthProvider = ({ children }) => {
       } else {
         setError("An unexpected error occurred");
       }
+      throw err;
     } finally {
       setIsLoading(false);
     }

@@ -94,6 +94,23 @@ const ListItem = ({ item }) => {
     router.push(`/listings/${urlSlug}/${product_id}/edit`);
   };
 
+  const handleStartChat = async () => {
+    if (!user) {
+      router.push("/auth/signin");
+      return;
+    }
+
+    try {
+      const res = await api.post("/api/chat/conversations/", {
+        listing: product_id,
+      });
+      console.log("Conversation created:", res.data);
+      router.push(`/chat/${res.data.id}`);
+    } catch (error) {
+      console.error("Failed to create/get conversation:", error);
+    }
+  };
+
   // Handle delete listing
   const handleDelete = async () => {
     // Log all item properties to debug
@@ -434,10 +451,11 @@ const ListItem = ({ item }) => {
           <p className="text-gray-600 font-semibold">Pickup Location</p>
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
-        <button className="bg-blue-700 text-white px-4 py-2 rounded-md w-fit mt-4 cursor-pointer hover:bg-blue-600 flex justify-center items-center">
-          <span className="text-sm sm:text-md font-medium capitalize flex items-center">
-            Make Offer
-          </span>
+        <button
+          onClick={handleStartChat}
+          className="bg-blue-700 text-white px-4 py-2 rounded-md mt-4 hover:bg-blue-600"
+        >
+          Make Offer
         </button>
       </div>
 
