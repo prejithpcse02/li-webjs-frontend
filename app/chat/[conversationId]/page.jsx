@@ -75,8 +75,15 @@ export default function ChatDetailPage() {
   // Respond to offer (accept/reject)
   const respondToOffer = async (offerId, newStatus) => {
     try {
+      console.log(`Responding to offer ${offerId} with status ${newStatus}`);
+      // Use 'accept' or 'reject' instead of 'Accepted' or 'Rejected'
+      const action = newStatus === "Accepted" ? "accept" : "reject";
+      const endpoint = `/api/offers/${offerId}/${action}/`;
+      console.log("Calling endpoint:", endpoint);
+
       // Call the appropriate endpoint based on the action
-      await api.post(`/api/offers/${offerId}/${newStatus.toLowerCase()}/`);
+      const response = await api.post(endpoint);
+      console.log("Response:", response.data);
 
       // Refresh messages to show the updated offer status
       const refreshed = await api.get(
@@ -85,6 +92,11 @@ export default function ChatDetailPage() {
       setMessages(refreshed.data);
     } catch (err) {
       console.error("Failed to respond to offer", err);
+      console.error("Error details:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        endpoint: err.config?.url,
+      });
     }
   };
 
@@ -98,35 +110,56 @@ export default function ChatDetailPage() {
   const MessageBubble = ({ msg, isMe }) => {
     const isOffer = msg.is_offer && msg.offer;
 
-    if (isOffer) {
+    if (isOffer && msg.offer) {
       const offer = msg.offer;
+      console.log("Rendering offer message:", {
+        messageId: msg.id,
+        offerId: offer?.id,
+        offerStatus: offer?.status,
+        isMe: isMe,
+        isSeller: user?.id === conversation?.listing?.seller_id,
+      });
+
+      // Determine the background color based on offer status
+      const getStatusColor = () => {
+        switch (offer?.status) {
+          case "Accepted":
+            return "bg-green-100 border-green-300 text-green-800";
+          case "Rejected":
+            return "bg-red-100 border-red-300 text-red-800";
+          default:
+            return "bg-yellow-100 border-yellow-300 text-yellow-800";
+        }
+      };
 
       return (
         <div className="flex justify-center my-4">
-          <div className="bg-yellow-100 border border-yellow-300 p-4 rounded-lg text-center shadow-sm max-w-sm w-full">
-            <p className="text-md font-bold text-yellow-800 mb-1">
-              Offer: ₹{offer.price}
+          <div
+            className={`${getStatusColor()} border p-4 rounded-lg text-center shadow-sm max-w-sm w-full`}
+          >
+            <p className="text-md font-bold mb-1">Offer: ₹{offer?.price}</p>
+            <p className="text-sm">
+              Status: <span className="font-semibold">{offer?.status}</span>
             </p>
-            <p className="text-sm text-gray-800">
-              Status: <span className="font-semibold">{offer.status}</span>
-            </p>
-            {user.id !== msg.sender.id && offer.status === "Pending" && (
-              <div className="flex justify-center mt-3 gap-2">
-                <button
-                  onClick={() => respondToOffer(offer.id, "Accepted")}
-                  className="bg-green-600 text-white px-3 py-1 rounded-md"
-                >
-                  Accept
-                </button>
-                <button
-                  onClick={() => respondToOffer(offer.id, "Rejected")}
-                  className="bg-red-500 text-white px-3 py-1 rounded-md"
-                >
-                  Decline
-                </button>
-              </div>
-            )}
-            <p className="text-xs text-yellow-700 mt-2">
+            {/* Only show accept/reject buttons if user is the seller and offer is pending */}
+            {user?.id === conversation?.listing?.seller_id &&
+              offer?.status === "Pending" && (
+                <div className="flex justify-center mt-3 gap-2">
+                  <button
+                    onClick={() => respondToOffer(offer?.id, "Accepted")}
+                    className="bg-green-600 text-white px-3 py-1 rounded-md"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => respondToOffer(offer?.id, "Rejected")}
+                    className="bg-red-500 text-white px-3 py-1 rounded-md"
+                  >
+                    Decline
+                  </button>
+                </div>
+              )}
+            <p className="text-xs mt-2 opacity-70">
               {dayjs(msg.created_at).format("h:mm A")}
             </p>
           </div>
@@ -210,18 +243,28 @@ export default function ChatDetailPage() {
               </div>
             </div>
             <div className="flex gap-2 mt-3">
-              <button
-                onClick={() => setShowOfferInput(true)}
-                className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
-              >
-                Make offer
-              </button>
+              {console.log("Debug info:", {
+                currentUserId: user.id,
+                sellerId: conversation?.listing?.seller_id,
+                isSeller: user.id === conversation?.listing?.seller_id,
+                conversation: conversation,
+              })}
+              {user.id !== conversation?.listing?.seller_id && (
+                <button
+                  onClick={() => setShowOfferInput(true)}
+                  className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
+                >
+                  Make offer
+                </button>
+              )}
               <button className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700">
                 ₹ {conversation?.listing?.price}
               </button>
-              <button className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200">
-                Amend offer
-              </button>
+              {user.id !== conversation?.listing?.seller_id && (
+                <button className="flex-1 py-2 px-3 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200">
+                  Amend offer
+                </button>
+              )}
             </div>
           </div>
         </div>
