@@ -18,6 +18,10 @@ export default function ChatDetailPage() {
   const [offerAmount, setOfferAmount] = useState("");
   const [showOfferInput, setShowOfferInput] = useState(false);
   const [pendingOffer, setPendingOffer] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const bottomRef = useRef(null);
 
   // Fetch conversation + messages and set initial offer amount
@@ -57,6 +61,7 @@ export default function ChatDetailPage() {
   const cancelOffer = async (offerId) => {
     try {
       await api.post(`/api/offers/${offerId}/cancel/`);
+      // Refresh messages to show the updated offer status
       const refreshed = await api.get(
         `/api/chat/conversations/${conversationId}/messages/`
       );
@@ -64,6 +69,9 @@ export default function ChatDetailPage() {
       setPendingOffer(null);
     } catch (err) {
       console.error("Failed to cancel offer", err);
+      alert(
+        err.response?.data?.error || "Failed to cancel offer. Please try again."
+      );
     }
   };
 
@@ -71,6 +79,33 @@ export default function ChatDetailPage() {
   const isValidOffer = (amount) => {
     const numAmount = parseFloat(amount);
     return !isNaN(numAmount) && numAmount > 0;
+  };
+
+  // Amend offer
+  const amendOffer = async (amount) => {
+    try {
+      // First cancel the existing offer
+      await api.post(`/api/offers/${pendingOffer.id}/cancel/`);
+
+      // Then create a new offer
+      const res = await api.post("/api/chat/messages/", {
+        conversation: parseInt(conversationId),
+        sender_id: user?.id,
+        content: `Updated offer: ₹${amount}`,
+        message_type: "text",
+        is_offer: true,
+        price: parseFloat(amount),
+      });
+
+      setMessages((prev) => [...prev, res.data]);
+      setPendingOffer(res.data.offer);
+      setShowOfferInput(false);
+    } catch (err) {
+      console.error("Failed to amend offer", err);
+      alert(
+        err.response?.data?.error || "Failed to amend offer. Please try again."
+      );
+    }
   };
 
   // Submit a message (plain or offer)
@@ -84,26 +119,33 @@ export default function ChatDetailPage() {
           alert("Please enter a valid offer amount greater than 0");
           return;
         }
-        // Create message with offer
-        const res = await api.post("/api/chat/messages/", {
-          conversation: conversationId,
-          sender_id: user?.id,
-          content: `Made offer: A$${offerAmount}`,
-          message_type: "text",
-          is_offer: true,
-          price: offerAmount,
-        });
 
-        setMessages((prev) => [...prev, res.data]);
-        setPendingOffer(res.data.offer);
-        setShowOfferInput(false);
+        if (showOfferInput && pendingOffer) {
+          // If we're amending an offer
+          await amendOffer(offerAmount);
+        } else {
+          // Create new offer
+          const res = await api.post("/api/chat/messages/", {
+            conversation: parseInt(conversationId),
+            sender_id: user?.id,
+            content: `Made offer: ₹${offerAmount}`,
+            message_type: "text",
+            is_offer: true,
+            price: parseFloat(offerAmount),
+          });
+
+          setMessages((prev) => [...prev, res.data]);
+          setPendingOffer(res.data.offer);
+          setShowOfferInput(false);
+        }
       } else {
         // Create regular message
         const res = await api.post("/api/chat/messages/", {
-          conversation: conversationId,
+          conversation: parseInt(conversationId),
           sender_id: user?.id,
           content: trimmed,
           message_type: "text",
+          is_offer: false,
         });
 
         setMessages((prev) => [...prev, res.data]);
@@ -111,19 +153,22 @@ export default function ChatDetailPage() {
       }
     } catch (err) {
       console.error("Send message failed", err);
+      alert(
+        err.response?.data?.error || "Failed to send message. Please try again."
+      );
     }
   };
 
   // Respond to offer (accept/reject)
-  const respondToOffer = async (offerId, newStatus) => {
+  const respondToOffer = async (offerId, action) => {
     try {
       // Check if user is the seller
       if (user?.id !== conversation?.listing?.seller_id) {
         throw new Error("Only the listing owner can respond to offers");
       }
 
-      const action = newStatus === "Accepted" ? "accept" : "reject";
-      const endpoint = `/api/offers/${offerId}/${action}/`;
+      const endpoint = `/api/offers/${offerId}/${action.toLowerCase()}/`;
+      console.log("Calling endpoint:", endpoint);
 
       const response = await api.post(endpoint);
 
@@ -138,14 +183,41 @@ export default function ChatDetailPage() {
       setMessages(refreshed.data);
     } catch (err) {
       console.error("Failed to respond to offer", err);
-      alert(err.message || "Failed to respond to offer. Please try again.");
+      alert(
+        err.response?.data?.error ||
+          err.message ||
+          "Failed to respond to offer. Please try again."
+      );
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+  // Submit a review for the seller
+  const submitReview = async () => {
+    if (!conversation?.listing?.seller_id) return;
+
+    try {
+      setIsSubmittingReview(true);
+      await api.post("/api/reviews/", {
+        reviewed_user: conversation.listing.seller_id,
+        reviewed_product: conversation.listing.id,
+        rating: reviewRating,
+        review_text: reviewText,
+      });
+
+      setShowReviewModal(false);
+      setReviewRating(5);
+      setReviewText("");
+
+      // Show success message
+      alert("Thank you for your review!");
+    } catch (err) {
+      console.error("Failed to submit review", err);
+      alert(
+        err.response?.data?.error ||
+          "Failed to submit review. Please try again."
+      );
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -155,14 +227,14 @@ export default function ChatDetailPage() {
 
     if (isOffer && msg.offer) {
       const offer = msg.offer;
-
-      // Determine the background color based on offer status
       const getStatusColor = () => {
         switch (offer?.status) {
           case "Accepted":
             return "bg-green-100 border-green-300 text-green-800";
           case "Rejected":
             return "bg-red-100 border-red-300 text-red-800";
+          case "Cancelled":
+            return "bg-gray-100 border-gray-300 text-gray-800";
           default:
             return "bg-yellow-100 border-yellow-300 text-yellow-800";
         }
@@ -173,39 +245,45 @@ export default function ChatDetailPage() {
           <div
             className={`${getStatusColor()} border p-4 rounded-lg text-center shadow-sm max-w-sm w-full`}
           >
-            <p className="text-md font-bold mb-1">Offer: A${offer?.price}</p>
+            <p className="text-md font-bold mb-1">Offer: ₹{offer?.price}</p>
             <p className="text-sm">
               Status: <span className="font-semibold">{offer?.status}</span>
             </p>
-            {/* Only show accept/reject buttons if user is the seller and offer is pending */}
             {isSeller && offer?.status === "Pending" && (
               <div className="flex justify-center mt-3 gap-2">
                 <button
-                  onClick={() => respondToOffer(offer?.id, "Accepted")}
+                  onClick={() => respondToOffer(offer?.id, "Accept")}
                   className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
                 >
                   Accept
                 </button>
                 <button
-                  onClick={() => respondToOffer(offer?.id, "Rejected")}
+                  onClick={() => respondToOffer(offer?.id, "Reject")}
                   className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
                 >
                   Decline
                 </button>
               </div>
             )}
-            <p className="text-xs mt-2 opacity-70">
-              {dayjs(msg.created_at).format("h:mm A")}
-            </p>
+            {!isSeller && offer?.status === "Accepted" && (
+              <div className="flex justify-center mt-3">
+                <button
+                  onClick={() => setShowReviewModal(true)}
+                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                >
+                  Review Seller
+                </button>
+              </div>
+            )}
           </div>
         </div>
       );
     }
 
     return (
-      <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+      <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-4`}>
         <div
-          className={`w-[80%] relative px-4 py-2.5 ${
+          className={`relative px-4 py-2 max-w-[80%] ${
             isMe
               ? "bg-blue-500 text-white rounded-[20px] rounded-tr-[5px]"
               : "bg-gray-100 text-gray-900 rounded-[20px] rounded-tl-[5px]"
@@ -237,6 +315,8 @@ export default function ChatDetailPage() {
       </div>
     );
   }
+
+  const isBuyer = user?.id !== conversation?.listing?.seller_id;
 
   return (
     <div className="flex justify-center min-h-screen bg-gray-50">
@@ -291,13 +371,13 @@ export default function ChatDetailPage() {
             </div>
 
             {/* Buyer's Action Bar */}
-            {user?.id !== conversation?.listing?.seller_id && (
+            {isBuyer && (
               <div className="mt-3">
-                {!pendingOffer ? (
+                {!pendingOffer || showOfferInput ? (
                   <div className="flex items-center gap-2">
                     <div className="flex-1 relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                        A$
+                        ₹
                       </span>
                       <input
                         type="number"
@@ -312,26 +392,37 @@ export default function ChatDetailPage() {
                       className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
                       disabled={!isValidOffer(offerAmount)}
                     >
-                      Make offer
+                      {showOfferInput ? "Update offer" : "Make offer"}
                     </button>
+                    {showOfferInput && (
+                      <button
+                        onClick={() => {
+                          setShowOfferInput(false);
+                          setOfferAmount(pendingOffer.price.toString());
+                        }}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => cancelOffer(pendingOffer.id)}
-                      className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
+                      className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
                     >
                       Cancel offer
                     </button>
-                    <button className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700">
-                      A$ {pendingOffer.price}
-                    </button>
+                    <div className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 text-center">
+                      ₹{pendingOffer.price}
+                    </div>
                     <button
                       onClick={() => {
                         setOfferAmount(pendingOffer.price.toString());
                         setShowOfferInput(true);
                       }}
-                      className="flex-1 py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
+                      className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
                     >
                       Amend offer
                     </button>
@@ -393,7 +484,12 @@ export default function ChatDetailPage() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
                 placeholder="Type here..."
                 className="flex-1 py-2.5 px-4 bg-gray-100 rounded-full text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
               />
@@ -421,6 +517,64 @@ export default function ChatDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Review Modal */}
+      {showReviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold mb-4">Review Seller</h2>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Rating
+              </label>
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    onClick={() => setReviewRating(star)}
+                    className={`text-2xl ${
+                      star <= reviewRating ? "text-yellow-400" : "text-gray-300"
+                    }`}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Review
+              </label>
+              <textarea
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                placeholder="Share your experience with this seller..."
+                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={4}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                disabled={isSubmittingReview}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReview}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                disabled={isSubmittingReview}
+              >
+                {isSubmittingReview ? "Submitting..." : "Submit Review"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
