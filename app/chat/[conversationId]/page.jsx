@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import api from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
 import dayjs from "dayjs";
@@ -11,6 +11,7 @@ export default function ChatDetailPage() {
   const router = useRouter();
   const { conversationId } = useParams();
   const { user } = useAuth();
+
   const [isLoading, setIsLoading] = useState(true);
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -22,93 +23,212 @@ export default function ChatDetailPage() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [listingReviews, setListingReviews] = useState([]);
+  const [hasReviewed, setHasReviewed] = useState(false);
   const bottomRef = useRef(null);
 
-  // Fetch conversation + messages and set initial offer amount
+  const isBuyer = user?.id !== conversation?.listing?.seller_id;
+
+  // Check if user has already reviewed
+  useEffect(() => {
+    const checkExistingReview = async () => {
+      if (conversation?.listing && user?.id) {
+        try {
+          const response = await api.get("/api/reviews/my-reviews/");
+          const existingReview = response.data.find(
+            (review) =>
+              review.reviewed_product === conversation.listing.product_id &&
+              review.reviewed_user === conversation.listing.seller_id
+          );
+          setHasReviewed(!!existingReview);
+        } catch (error) {
+          console.error("Error checking existing review:", error);
+        }
+      }
+    };
+
+    checkExistingReview();
+  }, [conversation?.listing, user?.id]);
+
   useEffect(() => {
     if (conversationId) {
       setIsLoading(true);
-      Promise.all([
-        api.get(`/api/chat/conversations/${conversationId}/`),
-        api.get(`/api/chat/conversations/${conversationId}/messages/`),
-      ])
-        .then(([convRes, msgRes]) => {
-          setConversation(convRes.data);
-          setMessages(msgRes.data);
-          // Set initial offer amount to listing price
-          setOfferAmount(convRes.data?.listing?.price?.toString() || "");
-          // Find pending offer if exists
+
+      // Create an AbortController for cleanup
+      const controller = new AbortController();
+      const signal = controller.signal;
+
+      // Function to check auth and fetch data
+      const fetchData = async () => {
+        try {
+          // Check if we have a valid token
+          const token = localStorage.getItem("token");
+          if (!token) {
+            router.push("/auth/signin");
+            return;
+          }
+
+          // Set token in headers
+          api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+          const [conversationRes, messagesRes] = await Promise.all([
+            api.get(`/api/chat/conversations/${conversationId}/`, { signal }),
+            api.get(`/api/chat/conversations/${conversationId}/messages/`, {
+              signal,
+            }),
+          ]);
+
+          setConversation(conversationRes.data);
+          setMessages(messagesRes.data);
+          setOfferAmount(
+            conversationRes.data?.listing?.price?.toString() || ""
+          );
+
+          // Set pending offer
           const latestPendingOffer =
-            msgRes.data
+            messagesRes.data
               .filter((msg) => msg.is_offer && msg.offer?.status === "Pending")
               .pop()?.offer || null;
           setPendingOffer(latestPendingOffer);
-        })
-        .catch((error) => {
-          console.error("Failed to fetch chat data:", error);
-        })
-        .finally(() => {
+
+          // Fetch reviews for both buyer and seller
+          if (conversationRes.data?.listing?.product_id) {
+            const reviewsRes = await api.get(
+              `/api/reviews/listing/${conversationRes.data.listing.product_id}/`,
+              { signal }
+            );
+            setListingReviews(reviewsRes.data);
+
+            // Check if user has already reviewed
+            const userReview = reviewsRes.data.find(
+              (review) => review.reviewer === user?.id
+            );
+            setHasReviewed(!!userReview);
+          }
+        } catch (error) {
+          if (!signal.aborted) {
+            console.error("Failed to fetch data:", error);
+            if (error.response?.status === 401) {
+              // Try to refresh the token
+              try {
+                const refreshToken = localStorage.getItem("refreshToken");
+                if (refreshToken) {
+                  const response = await api.post("/api/token/refresh/", {
+                    refresh: refreshToken,
+                  });
+                  localStorage.setItem("token", response.data.access);
+                  api.defaults.headers.common[
+                    "Authorization"
+                  ] = `Bearer ${response.data.access}`;
+                  // Retry the fetch
+                  fetchData();
+                  return;
+                }
+              } catch (refreshError) {
+                console.error("Token refresh failed:", refreshError);
+                router.push("/auth/signin");
+                return;
+              }
+            }
+          }
+        } finally {
           setIsLoading(false);
-        });
+        }
+      };
+
+      fetchData();
+
+      // Cleanup function
+      return () => {
+        controller.abort();
+      };
     }
-  }, [conversationId]);
+  }, [conversationId, user, router]);
+
+  // Add message caching
+  const cachedMessages = useMemo(() => {
+    return messages;
+  }, [messages]);
+
+  // Add review caching
+  const cachedReviews = useMemo(() => {
+    return listingReviews;
+  }, [listingReviews]);
+
+  // Optimize message rendering
+  const renderMessages = useCallback(() => {
+    // Create a Set to track unique offer IDs
+    const seenOfferIds = new Set();
+
+    return cachedMessages
+      .map((msg, index) => {
+        // For offer messages, check if we've already seen this offer
+        if (msg.is_offer && msg.offer) {
+          if (seenOfferIds.has(msg.offer.id)) {
+            return null; // Skip duplicate offers
+          }
+          seenOfferIds.add(msg.offer.id);
+        }
+
+        return (
+          <MessageBubble
+            key={`${msg.id}-${index}`}
+            msg={msg}
+            isMe={msg.sender.id === user?.id}
+          />
+        );
+      })
+      .filter(Boolean); // Remove null entries
+  }, [cachedMessages, user]);
+
+  // Optimize review rendering
+  const renderReviews = useCallback(() => {
+    if (cachedReviews.length > 0) {
+      return (
+        <div className="bg-white p-4 border-t">
+          <h3 className="text-lg font-semibold mb-3">
+            Reviews for this listing
+          </h3>
+          {cachedReviews.map((review) => (
+            <div key={review.id} className="mb-4 p-4 bg-blue-50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-medium text-blue-800">
+                  {review.reviewer_username} left a review
+                </p>
+                <div className="flex gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <span
+                      key={i}
+                      className={
+                        i < review.rating ? "text-yellow-400" : "text-gray-300"
+                      }
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {review.review_text && (
+                <p className="text-blue-800 italic">"{review.review_text}"</p>
+              )}
+              <p className="text-sm text-gray-500 mt-2">
+                {dayjs(review.created_at).format("MMM D, YYYY")}
+              </p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  }, [cachedReviews]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Cancel offer
-  const cancelOffer = async (offerId) => {
-    try {
-      await api.post(`/api/offers/${offerId}/cancel/`);
-      // Refresh messages to show the updated offer status
-      const refreshed = await api.get(
-        `/api/chat/conversations/${conversationId}/messages/`
-      );
-      setMessages(refreshed.data);
-      setPendingOffer(null);
-    } catch (err) {
-      console.error("Failed to cancel offer", err);
-      alert(
-        err.response?.data?.error || "Failed to cancel offer. Please try again."
-      );
-    }
-  };
+  const isValidOffer = (amount) =>
+    !isNaN(parseFloat(amount)) && parseFloat(amount) > 0;
 
-  // Validate offer amount
-  const isValidOffer = (amount) => {
-    const numAmount = parseFloat(amount);
-    return !isNaN(numAmount) && numAmount > 0;
-  };
-
-  // Amend offer
-  const amendOffer = async (amount) => {
-    try {
-      // First cancel the existing offer
-      await api.post(`/api/offers/${pendingOffer.id}/cancel/`);
-
-      // Then create a new offer
-      const res = await api.post("/api/chat/messages/", {
-        conversation: parseInt(conversationId),
-        sender_id: user?.id,
-        content: `Updated offer: ₹${amount}`,
-        message_type: "text",
-        is_offer: true,
-        price: parseFloat(amount),
-      });
-
-      setMessages((prev) => [...prev, res.data]);
-      setPendingOffer(res.data.offer);
-      setShowOfferInput(false);
-    } catch (err) {
-      console.error("Failed to amend offer", err);
-      alert(
-        err.response?.data?.error || "Failed to amend offer. Please try again."
-      );
-    }
-  };
-
-  // Submit a message (plain or offer)
   const sendMessage = async (isOffer = false, offerAmount = null) => {
     const trimmed = isOffer ? offerAmount : input.trim();
     if (!trimmed) return;
@@ -159,63 +279,137 @@ export default function ChatDetailPage() {
     }
   };
 
-  // Respond to offer (accept/reject)
-  const respondToOffer = async (offerId, action) => {
+  const amendOffer = async (amount) => {
     try {
-      // Check if user is the seller
-      if (user?.id !== conversation?.listing?.seller_id) {
-        throw new Error("Only the listing owner can respond to offers");
-      }
+      // First cancel the existing offer
+      await api.post(`/api/offers/${pendingOffer.id}/cancel/`);
 
-      const endpoint = `/api/offers/${offerId}/${action.toLowerCase()}/`;
-      console.log("Calling endpoint:", endpoint);
+      // Then create a new offer
+      const res = await api.post("/api/chat/messages/", {
+        conversation: parseInt(conversationId),
+        sender_id: user?.id,
+        content: `Updated offer: ₹${amount}`,
+        message_type: "text",
+        is_offer: true,
+        price: parseFloat(amount),
+      });
 
-      const response = await api.post(endpoint);
-
-      if (!response.data) {
-        throw new Error("Failed to update offer status");
-      }
-
-      // Refresh messages to show the updated offer status
-      const refreshed = await api.get(
-        `/api/chat/conversations/${conversationId}/messages/`
-      );
-      setMessages(refreshed.data);
+      setMessages((prev) => [...prev, res.data]);
+      setPendingOffer(res.data.offer);
+      setShowOfferInput(false);
     } catch (err) {
-      console.error("Failed to respond to offer", err);
+      console.error("Failed to amend offer", err);
       alert(
-        err.response?.data?.error ||
-          err.message ||
-          "Failed to respond to offer. Please try again."
+        err.response?.data?.error || "Failed to amend offer. Please try again."
       );
     }
   };
 
-  // Submit a review for the seller
-  const submitReview = async () => {
-    if (!conversation?.listing?.seller_id) return;
-
+  const cancelOffer = async (offerId) => {
     try {
+      await api.post(`/api/offers/${offerId}/cancel/`);
+      const refreshed = await api.get(
+        `/api/chat/conversations/${conversationId}/messages/`
+      );
+      setMessages(refreshed.data);
+      setPendingOffer(null);
+
+      // Update conversation count in parent component
+      if (typeof window !== "undefined") {
+        const event = new CustomEvent("chatUpdated", {
+          detail: { conversationId: parseInt(conversationId) },
+        });
+        window.dispatchEvent(event);
+      }
+    } catch (err) {
+      alert("Cancel failed");
+    }
+  };
+
+  const respondToOffer = async (offerId, action) => {
+    try {
+      if (user?.id !== conversation?.listing?.seller_id)
+        throw new Error("Not seller");
+      await api.post(`/api/offers/${offerId}/${action.toLowerCase()}/`);
+      const refreshed = await api.get(
+        `/api/chat/conversations/${conversationId}/messages/`
+      );
+      setMessages(refreshed.data);
+
+      // Update conversation count in parent component
+      if (typeof window !== "undefined") {
+        const event = new CustomEvent("chatUpdated", {
+          detail: { conversationId: parseInt(conversationId) },
+        });
+        window.dispatchEvent(event);
+      }
+    } catch (err) {
+      alert("Failed to respond");
+    }
+  };
+
+  const submitReview = async () => {
+    try {
+      // Check if already reviewed
+      if (hasReviewed) {
+        alert("You have already reviewed this seller for this product.");
+        setShowReviewModal(false);
+        return;
+      }
+
       setIsSubmittingReview(true);
-      await api.post("/api/reviews/", {
+
+      // Check if we have a valid token
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/auth/signin");
+        return;
+      }
+
+      // Set token in headers
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+      // Submit the review
+      const reviewResponse = await api.post("/api/reviews/", {
         reviewed_user: conversation.listing.seller_id,
-        reviewed_product: conversation.listing.id,
-        rating: reviewRating,
-        review_text: reviewText,
+        reviewed_product: conversation.listing.product_id,
+        rating: parseInt(reviewRating),
+        review_text: reviewText.trim() || null,
       });
 
+      // Refresh messages to get the new review message
+      const messagesResponse = await api.get(
+        `/api/chat/conversations/${conversationId}/messages/`
+      );
+
+      // Update states
+      setMessages(messagesResponse.data);
+      setListingReviews((prev) => [...prev, reviewResponse.data]);
+      setHasReviewed(true);
       setShowReviewModal(false);
       setReviewRating(5);
       setReviewText("");
 
-      // Show success message
+      // Scroll to bottom to show the new review
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+
       alert("Thank you for your review!");
-    } catch (err) {
-      console.error("Failed to submit review", err);
-      alert(
-        err.response?.data?.error ||
-          "Failed to submit review. Please try again."
-      );
+    } catch (error) {
+      console.error("Failed to submit review:", error);
+      if (error.response?.data?.error) {
+        alert(error.response.data.error);
+        if (error.response.data.error.includes("already reviewed")) {
+          setHasReviewed(true);
+          setShowReviewModal(false);
+        }
+      } else if (
+        !conversation?.listing?.seller_id ||
+        !conversation?.listing?.product_id
+      ) {
+        alert("Missing required listing information. Please try again later.");
+      } else {
+        alert("Failed to submit review. Please try again.");
+      }
     } finally {
       setIsSubmittingReview(false);
     }
@@ -224,76 +418,191 @@ export default function ChatDetailPage() {
   const MessageBubble = ({ msg, isMe }) => {
     const isOffer = msg.is_offer && msg.offer;
     const isSeller = user?.id === conversation?.listing?.seller_id;
+    const isReview =
+      msg.review_data ||
+      (typeof msg.content === "string" &&
+        msg.content.includes("left a review:"));
 
-    if (isOffer && msg.offer) {
-      const offer = msg.offer;
-      const getStatusColor = () => {
-        switch (offer?.status) {
-          case "Accepted":
-            return "bg-green-100 border-green-300 text-green-800";
-          case "Rejected":
-            return "bg-red-100 border-red-300 text-red-800";
-          case "Cancelled":
-            return "bg-gray-100 border-gray-300 text-gray-800";
-          default:
-            return "bg-yellow-100 border-yellow-300 text-yellow-800";
-        }
+    if (isReview) {
+      const reviewData = msg.review_data || {
+        rating: parseInt(msg.content.match(/(\d+) ★/)?.[1] || 0),
+        review_text: msg.content.split(" - ")[1] || null,
+        reviewer_username: msg.sender.nickname,
       };
 
       return (
         <div className="flex justify-center my-4">
-          <div
-            className={`${getStatusColor()} border p-4 rounded-lg text-center shadow-sm max-w-sm w-full`}
-          >
-            <p className="text-md font-bold mb-1">Offer: ₹{offer?.price}</p>
-            <p className="text-sm">
-              Status: <span className="font-semibold">{offer?.status}</span>
-            </p>
-            {isSeller && offer?.status === "Pending" && (
-              <div className="flex justify-center mt-3 gap-2">
-                <button
-                  onClick={() => respondToOffer(offer?.id, "Accept")}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                >
-                  Accept
-                </button>
-                <button
-                  onClick={() => respondToOffer(offer?.id, "Reject")}
-                  className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-                >
-                  Decline
-                </button>
-              </div>
-            )}
-            {!isSeller && offer?.status === "Accepted" && (
-              <div className="flex justify-center mt-3">
-                <button
-                  onClick={() => setShowReviewModal(true)}
-                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                >
-                  Review Seller
-                </button>
-              </div>
+          <div className="border p-4 rounded-lg text-center shadow-sm max-w-sm w-full bg-blue-50 border-blue-200">
+            {isSeller ? (
+              <>
+                <p className="text-blue-800 font-medium mb-2">
+                  {msg.sender.id === user.id
+                    ? "You received a review!"
+                    : `${reviewData.reviewer_username} left you a review!`}
+                </p>
+                <div className="flex justify-center gap-1 mt-2">
+                  {[...Array(5)].map((_, i) => (
+                    <span
+                      key={i}
+                      className={
+                        i < reviewData.rating
+                          ? "text-yellow-400"
+                          : "text-gray-300"
+                      }
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+                {reviewData.review_text && (
+                  <p className="text-blue-800 mt-2 italic">
+                    "{reviewData.review_text}"
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-blue-800 font-medium">
+                  {msg.sender.id === user.id
+                    ? "You left a review"
+                    : `${reviewData.reviewer_username} left a review`}
+                </p>
+                <div className="flex justify-center gap-1 mt-2">
+                  {[...Array(5)].map((_, i) => (
+                    <span
+                      key={i}
+                      className={
+                        i < reviewData.rating
+                          ? "text-yellow-400"
+                          : "text-gray-300"
+                      }
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+                {reviewData.review_text && (
+                  <p className="text-blue-800 mt-2 italic">
+                    "{reviewData.review_text}"
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
       );
     }
 
+    if (isOffer) {
+      let statusColor = "";
+      switch (msg.offer.status) {
+        case "Accepted":
+          statusColor = "bg-green-100 border-green-200 text-green-800";
+          break;
+        case "Rejected":
+          statusColor = "bg-red-100 border-red-200 text-red-800";
+          break;
+        case "Cancelled":
+          statusColor = "bg-gray-100 border-gray-200 text-gray-800";
+          break;
+        default:
+          statusColor = "bg-yellow-100 border-yellow-200 text-yellow-800";
+      }
+
+      return (
+        <div className="flex justify-center my-3">
+          <div
+            className={`border p-3 rounded-lg w-full max-w-sm ${statusColor}`}
+          >
+            <div className="text-center">
+              <p className="font-medium">
+                {msg.offer.status === "Pending"
+                  ? "Made offer: "
+                  : `${msg.offer.status} offer: `}
+                ₹{msg.offer.price}
+              </p>
+            </div>
+
+            {isSeller && msg.offer.status === "Pending" && (
+              <div className="mt-3 flex gap-2 justify-center">
+                <button
+                  onClick={() => respondToOffer(msg.offer.id, "Accept")}
+                  className="bg-green-500 text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-green-600"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={() => respondToOffer(msg.offer.id, "Reject")}
+                  className="bg-red-500 text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-red-600"
+                >
+                  Decline
+                </button>
+              </div>
+            )}
+
+            {!isSeller && msg.offer.status === "Pending" && (
+              <div className="mt-3 text-center">
+                <button
+                  onClick={() => cancelOffer(msg.offer.id)}
+                  className="bg-gray-500 text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-gray-600"
+                >
+                  Cancel Offer
+                </button>
+              </div>
+            )}
+
+            {!isSeller &&
+              msg.offer.status === "Accepted" &&
+              !hasReviewed &&
+              !messages.some((m) => m.review_data) && (
+                <div className="mt-3 text-center">
+                  <button
+                    onClick={() => setShowReviewModal(true)}
+                    className="bg-blue-500 text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-blue-600"
+                  >
+                    Review Seller
+                  </button>
+                </div>
+              )}
+
+            {!isSeller &&
+              msg.offer.status === "Accepted" &&
+              (hasReviewed || messages.some((m) => m.review_data)) && (
+                <div className="mt-3 text-center">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    Review Submitted
+                  </div>
+                </div>
+              )}
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-4`}>
+      <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-2`}>
         <div
-          className={`relative px-4 py-2 max-w-[80%] ${
+          className={`px-3 py-2 max-w-[75%] rounded-2xl ${
             isMe
-              ? "bg-blue-500 text-white rounded-[20px] rounded-tr-[5px]"
-              : "bg-gray-100 text-gray-900 rounded-[20px] rounded-tl-[5px]"
+              ? "bg-blue-500 text-white ml-12"
+              : "bg-gray-100 text-gray-900 mr-12"
           }`}
         >
-          <p className="text-[15px] leading-relaxed break-words">
-            {msg.content}
-          </p>
+          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
           <p
-            className={`text-[11px] mt-1 ${
+            className={`text-[10px] mt-1 ${
               isMe ? "text-blue-100" : "text-gray-500"
             }`}
           >
@@ -304,46 +613,31 @@ export default function ChatDetailPage() {
     );
   };
 
-  if (isLoading || !user) {
+  if (isLoading) {
     return (
-      <div className="flex justify-center min-h-screen bg-gray-50">
-        <div className="w-full max-w-[480px] bg-white shadow-lg p-4">
-          <div className="flex items-center justify-center h-screen">
-            <div className="text-gray-500">Loading...</div>
-          </div>
+      <div className="flex justify-center items-center h-screen bg-gray-100">
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="text-gray-600 mt-4">Loading conversation...</p>
         </div>
       </div>
     );
   }
 
-  const isBuyer = user?.id !== conversation?.listing?.seller_id;
-
   return (
-    <div className="flex justify-center min-h-screen bg-gray-50">
-      <div className="w-full max-w-[480px] bg-white shadow-lg">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-white border-b">
-          <div className="flex items-center h-14 px-4">
+    <div className="flex justify-center bg-gray-100 min-h-screen">
+      <div className="w-full max-w-[480px] bg-white shadow-md flex flex-col h-screen">
+        {/* Header with back button and title */}
+        <div className="sticky top-0 bg-white border-b z-10">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
             <button
               onClick={() => router.back()}
-              className="p-2 -ml-2 hover:bg-gray-100 rounded-full"
+              className="text-gray-600 hover:text-gray-800"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
+              ✕
             </button>
-            <h1 className="text-lg font-semibold flex-1 text-center">Chat</h1>
+            <h1 className="text-lg font-semibold text-gray-800">Chat</h1>
+            <div className="w-8"></div> {/* For balance */}
           </div>
 
           {/* Product Info */}
@@ -434,147 +728,105 @@ export default function ChatDetailPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[calc(100vh-280px)]">
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              msg={msg}
-              isMe={msg.sender.id === user.id}
-            />
-          ))}
+        <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
+          {renderMessages()}
           <div ref={bottomRef} />
         </div>
 
-        {/* Offer Input */}
-        {showOfferInput && (
-          <div className="border-t bg-white px-4 py-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={offerAmount}
-                onChange={(e) => setOfferAmount(e.target.value)}
-                placeholder="Enter offer amount"
-                className="flex-1 py-2.5 px-4 bg-gray-100 rounded-lg text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-              />
-              <button
-                onClick={() => sendMessage(true, offerAmount)}
-                className="px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-                disabled={!offerAmount || isNaN(offerAmount)}
-              >
-                Send Offer
-              </button>
-              <button
-                onClick={() => {
-                  setShowOfferInput(false);
-                  setOfferAmount("");
-                }}
-                className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Reviews */}
+        {renderReviews()}
 
-        {/* Normal Chat Input */}
-        {!showOfferInput && (
-          <div className="sticky bottom-0 border-t bg-white px-4 py-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
-                placeholder="Type here..."
-                className="flex-1 py-2.5 px-4 bg-gray-100 rounded-full text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-              />
-              <button
-                onClick={() => sendMessage()}
-                className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50"
-                disabled={!input.trim()}
+        {/* Input */}
+        <div className="border-t bg-white">
+          <div className="p-4 flex items-center gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              className="flex-1 border rounded-full px-4 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              placeholder="Type here..."
+            />
+            <button
+              onClick={() => sendMessage()}
+              className="p-2 text-gray-600 hover:text-gray-800"
+              disabled={!input.trim()}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="w-6 h-6"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6 text-blue-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Review Modal */}
+        {showReviewModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white p-6 rounded-xl w-full max-w-md mx-4">
+              <h2 className="text-xl font-semibold mb-4 text-gray-800">
+                Review Seller
+              </h2>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Rating
+                </label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setReviewRating(star)}
+                      className={`text-2xl transition-colors ${
+                        star <= reviewRating
+                          ? "text-yellow-400"
+                          : "text-gray-300"
+                      }`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Review
+                </label>
+                <textarea
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  className="w-full border rounded-lg p-3 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={3}
+                  placeholder="Write your review..."
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowReviewModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-              </button>
+                  Cancel
+                </button>
+                <button
+                  onClick={submitReview}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isSubmittingReview}
+                >
+                  {isSubmittingReview ? "Submitting..." : "Submit"}
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
-
-      {/* Review Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h2 className="text-xl font-semibold mb-4">Review Seller</h2>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Rating
-              </label>
-              <div className="flex gap-1">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    onClick={() => setReviewRating(star)}
-                    className={`text-2xl ${
-                      star <= reviewRating ? "text-yellow-400" : "text-gray-300"
-                    }`}
-                  >
-                    ★
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Review
-              </label>
-              <textarea
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-                placeholder="Share your experience with this seller..."
-                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={4}
-              />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowReviewModal(false)}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                disabled={isSubmittingReview}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submitReview}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-                disabled={isSubmittingReview}
-              >
-                {isSubmittingReview ? "Submitting..." : "Submit Review"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
