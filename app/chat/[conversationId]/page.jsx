@@ -15,6 +15,7 @@ export default function ChatDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [processedMessages, setProcessedMessages] = useState([]);
   const [input, setInput] = useState("");
   const [offerAmount, setOfferAmount] = useState("");
   const [showOfferInput, setShowOfferInput] = useState(false);
@@ -25,7 +26,10 @@ export default function ChatDetailPage() {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [listingReviews, setListingReviews] = useState([]);
   const [hasReviewed, setHasReviewed] = useState(false);
+  const [lastMessageId, setLastMessageId] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const bottomRef = useRef(null);
+  const refreshIntervalRef = useRef(null);
 
   const isBuyer = user?.id !== conversation?.listing?.seller_id;
 
@@ -71,6 +75,7 @@ export default function ChatDetailPage() {
           // Set token in headers
           api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 
+          // Fetch conversation and messages in parallel
           const [conversationRes, messagesRes] = await Promise.all([
             api.get(`/api/chat/conversations/${conversationId}/`, { signal }),
             api.get(`/api/chat/conversations/${conversationId}/messages/`, {
@@ -78,6 +83,7 @@ export default function ChatDetailPage() {
             }),
           ]);
 
+          // Set conversation and messages data
           setConversation(conversationRes.data);
           setMessages(messagesRes.data);
           setOfferAmount(
@@ -91,20 +97,28 @@ export default function ChatDetailPage() {
               .pop()?.offer || null;
           setPendingOffer(latestPendingOffer);
 
-          // Fetch reviews for both buyer and seller
+          // Fetch reviews for both buyer and seller if we have a product ID
           if (conversationRes.data?.listing?.product_id) {
-            const reviewsRes = await api.get(
-              `/api/reviews/listing/${conversationRes.data.listing.product_id}/`,
-              { signal }
-            );
-            setListingReviews(reviewsRes.data);
+            try {
+              const reviewsRes = await api.get(
+                `/api/reviews/listing/${conversationRes.data.listing.product_id}/`,
+                { signal }
+              );
+              setListingReviews(reviewsRes.data);
 
-            // Check if user has already reviewed
-            const userReview = reviewsRes.data.find(
-              (review) => review.reviewer === user?.id
-            );
-            setHasReviewed(!!userReview);
+              // Check if user has already reviewed
+              const userReview = reviewsRes.data.find(
+                (review) => review.reviewer === user?.id
+              );
+              setHasReviewed(!!userReview);
+            } catch (reviewError) {
+              console.error("Error fetching reviews:", reviewError);
+              // Continue even if reviews fail to load
+            }
           }
+
+          // Only set loading to false after all data is loaded
+          setIsLoading(false);
         } catch (error) {
           if (!signal.aborted) {
             console.error("Failed to fetch data:", error);
@@ -131,7 +145,7 @@ export default function ChatDetailPage() {
               }
             }
           }
-        } finally {
+          // Set loading to false even if there's an error
           setIsLoading(false);
         }
       };
@@ -145,44 +159,114 @@ export default function ChatDetailPage() {
     }
   }, [conversationId, user, router]);
 
+  // Auto-refresh messages
+  useEffect(() => {
+    if (conversationId && !isLoading) {
+      // Set up interval to check for new messages
+      refreshIntervalRef.current = setInterval(async () => {
+        try {
+          const token = localStorage.getItem("token");
+          if (!token) return;
+
+          api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+          // Only fetch the latest messages
+          const response = await api.get(
+            `/api/chat/conversations/${conversationId}/messages/`
+          );
+
+          // Check if we have new messages
+          if (response.data.length > messages.length) {
+            setMessages(response.data);
+
+            // Update pending offer if needed
+            const latestPendingOffer =
+              response.data
+                .filter(
+                  (msg) => msg.is_offer && msg.offer?.status === "Pending"
+                )
+                .pop()?.offer || null;
+
+            if (
+              JSON.stringify(latestPendingOffer) !==
+              JSON.stringify(pendingOffer)
+            ) {
+              setPendingOffer(latestPendingOffer);
+            }
+
+            // Scroll to bottom if we're already at the bottom
+            if (bottomRef.current) {
+              const scrollPosition = window.innerHeight + window.scrollY;
+              const documentHeight = document.documentElement.scrollHeight;
+              const isAtBottom = scrollPosition >= documentHeight - 100;
+
+              if (isAtBottom) {
+                setTimeout(() => {
+                  bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+                }, 100);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error refreshing messages:", error);
+        }
+      }, 10000); // Check every 10 seconds
+
+      return () => {
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+        }
+      };
+    }
+  }, [conversationId, messages.length, pendingOffer, isLoading]);
+
+  // Process messages when they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      // Create a Set to track unique offer IDs
+      const seenOfferIds = new Set();
+
+      const processed = messages
+        .map((msg, index) => {
+          // For offer messages, check if we've already seen this offer
+          if (msg.is_offer && msg.offer) {
+            if (seenOfferIds.has(msg.offer.id)) {
+              return null; // Skip duplicate offers
+            }
+            seenOfferIds.add(msg.offer.id);
+          }
+
+          return {
+            ...msg,
+            key: `${msg.id}-${index}`,
+            isMe: msg.sender.id === user?.id,
+          };
+        })
+        .filter(Boolean); // Remove null entries
+
+      setProcessedMessages(processed);
+
+      // Update last message ID
+      if (processed.length > 0) {
+        setLastMessageId(processed[processed.length - 1].id);
+      }
+    }
+  }, [messages, user]);
+
   // Add message caching
   const cachedMessages = useMemo(() => {
-    return messages;
-  }, [messages]);
-
-  // Add review caching
-  const cachedReviews = useMemo(() => {
-    return listingReviews;
-  }, [listingReviews]);
+    return processedMessages;
+  }, [processedMessages]);
 
   // Optimize message rendering
   const renderMessages = useCallback(() => {
-    // Create a Set to track unique offer IDs
-    const seenOfferIds = new Set();
-
-    return cachedMessages
-      .map((msg, index) => {
-        // For offer messages, check if we've already seen this offer
-        if (msg.is_offer && msg.offer) {
-          if (seenOfferIds.has(msg.offer.id)) {
-            return null; // Skip duplicate offers
-          }
-          seenOfferIds.add(msg.offer.id);
-        }
-
-        return (
-          <MessageBubble
-            key={`${msg.id}-${index}`}
-            msg={msg}
-            isMe={msg.sender.id === user?.id}
-          />
-        );
-      })
-      .filter(Boolean); // Remove null entries
-  }, [cachedMessages, user]);
+    return cachedMessages.map((msg) => (
+      <MessageBubble key={msg.key} msg={msg} isMe={msg.isMe} />
+    ));
+  }, [cachedMessages]);
 
   // Optimize review rendering
-  const renderReviews = useCallback(() => {
+  /*const renderReviews = useCallback(() => {
     if (cachedReviews.length > 0) {
       return (
         <div className="bg-white p-4 border-t">
@@ -220,7 +304,7 @@ export default function ChatDetailPage() {
       );
     }
     return null;
-  }, [cachedReviews]);
+  }, [cachedReviews]);*/
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -244,7 +328,28 @@ export default function ChatDetailPage() {
           // If we're amending an offer
           await amendOffer(offerAmount);
         } else {
-          // Create new offer
+          // Create a temporary message for immediate display
+          const tempId = `temp-${Date.now()}`;
+          const tempMessage = {
+            id: tempId,
+            content: `Made offer: ₹${offerAmount}`,
+            created_at: new Date().toISOString(),
+            sender: { id: user?.id, nickname: user?.nickname || "You" },
+            is_offer: true,
+            offer: {
+              id: tempId,
+              price: parseFloat(offerAmount),
+              status: "Pending",
+            },
+            key: `${tempId}-${messages.length}`,
+            isMe: true,
+            isTemp: true,
+          };
+
+          // Optimistically update UI
+          setMessages((prev) => [...prev, tempMessage]);
+
+          // Create new offer in the background
           const res = await api.post("/api/chat/messages/", {
             conversation: parseInt(conversationId),
             sender_id: user?.id,
@@ -254,12 +359,46 @@ export default function ChatDetailPage() {
             price: parseFloat(offerAmount),
           });
 
-          setMessages((prev) => [...prev, res.data]);
+          // Update with the real message from the server
+          setMessages((prev) => {
+            const updatedMessages = prev.filter((msg) => msg.id !== tempId);
+            return [
+              ...updatedMessages,
+              {
+                ...res.data,
+                key: `${res.data.id}-${updatedMessages.length}`,
+                isMe: true,
+              },
+            ];
+          });
+
           setPendingOffer(res.data.offer);
           setShowOfferInput(false);
+
+          // Scroll to bottom
+          setTimeout(() => {
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+          }, 100);
         }
       } else {
-        // Create regular message
+        // Create a temporary message for immediate display
+        const tempId = `temp-${Date.now()}`;
+        const tempMessage = {
+          id: tempId,
+          content: trimmed,
+          created_at: new Date().toISOString(),
+          sender: { id: user?.id, nickname: user?.nickname || "You" },
+          is_offer: false,
+          key: `${tempId}-${messages.length}`,
+          isMe: true,
+          isTemp: true,
+        };
+
+        // Optimistically update UI
+        setMessages((prev) => [...prev, tempMessage]);
+        setInput("");
+
+        // Create regular message in the background
         const res = await api.post("/api/chat/messages/", {
           conversation: parseInt(conversationId),
           sender_id: user?.id,
@@ -268,11 +407,30 @@ export default function ChatDetailPage() {
           is_offer: false,
         });
 
-        setMessages((prev) => [...prev, res.data]);
-        setInput("");
+        // Update with the real message from the server
+        setMessages((prev) => {
+          const updatedMessages = prev.filter((msg) => msg.id !== tempId);
+          return [
+            ...updatedMessages,
+            {
+              ...res.data,
+              key: `${res.data.id}-${updatedMessages.length}`,
+              isMe: true,
+            },
+          ];
+        });
+
+        // Scroll to bottom
+        setTimeout(() => {
+          bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
       }
     } catch (err) {
       console.error("Send message failed", err);
+
+      // Remove the temporary message if there was an error
+      setMessages((prev) => prev.filter((msg) => !msg.isTemp));
+
       alert(
         err.response?.data?.error || "Failed to send message. Please try again."
       );
@@ -615,10 +773,50 @@ export default function ChatDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-screen bg-gray-100">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="text-gray-600 mt-4">Loading conversation...</p>
+      <div className="flex justify-center bg-gray-100 min-h-screen">
+        <div className="w-full max-w-[480px] bg-white shadow-md flex flex-col h-screen">
+          {/* Header with back button and title */}
+          <div className="sticky top-0 bg-white border-b z-10">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <button
+                onClick={() => router.back()}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ✕
+              </button>
+              <h1 className="text-lg font-semibold text-gray-800">Chat</h1>
+              <div className="w-8"></div> {/* For balance */}
+            </div>
+
+            {/* Product Info Loading Placeholder */}
+            <div className="px-4 py-3 border-b bg-white">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="h-5 bg-gray-200 rounded animate-pulse w-3/4"></div>
+                  <div className="h-4 bg-gray-200 rounded animate-pulse w-1/2 mt-2"></div>
+                </div>
+                <div className="w-14 h-14 flex-shrink-0 bg-gray-200 rounded-md animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Messages Loading Placeholder */}
+          <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
+            <div className="flex justify-center items-center h-full">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading conversation...</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Input Loading Placeholder */}
+          <div className="border-t bg-white">
+            <div className="p-4 flex items-center gap-2">
+              <div className="flex-1 h-10 bg-gray-200 rounded-full animate-pulse"></div>
+              <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse"></div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -734,7 +932,7 @@ export default function ChatDetailPage() {
         </div>
 
         {/* Reviews */}
-        {renderReviews()}
+        {/*renderReviews()*/}
 
         {/* Input */}
         <div className="border-t bg-white">
