@@ -4,7 +4,6 @@ import axios from "axios";
 // Create an axios instance with default config
 //const API_BASE_URL = "http://127.0.0.1:8000";
 //const API_BASE_URL = "https://backend-listtra.onrender.com";
-// Changed the frontend
 const API_BASE_URL = "https://backend-deployment-li-2.onrender.com";
 
 const api = axios.create({

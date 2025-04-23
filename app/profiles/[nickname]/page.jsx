@@ -5,15 +5,27 @@ import api from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
 import Navbar from "@/components/Navbar";
 import ListingCard from "@/components/ListingCard";
+import Link from "next/link";
+
+const tabs = ["Listings", "Reviews"];
 
 export default function ProfilePage({ params }) {
   const resolvedParams = React.use(params);
   const [profile, setProfile] = useState(null);
   const [listings, setListings] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [activeTab, setActiveTab] = useState("Listings");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
+
+  // Calculate average rating
+  const calculateAverageRating = (reviews) => {
+    if (!reviews.length) return 0;
+    const total = reviews.reduce((acc, review) => acc + review.rating, 0);
+    return (total / reviews.length).toFixed(1);
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -25,11 +37,18 @@ export default function ProfilePage({ params }) {
           `/api/profiles/${resolvedParams.nickname}/`
         );
         setProfile(response.data);
+
         // Fetch user's listings
         const listingsResponse = await api.get(
           `/api/listings/?seller=${response.data.id}&include_likes=true`
         );
         setListings(listingsResponse.data);
+
+        // Fetch user's reviews
+        const reviewsResponse = await api.get(
+          `/api/reviews/seller/${response.data.id}/`
+        );
+        setReviews(reviewsResponse.data);
       } catch (error) {
         console.error("Error fetching profile:", error);
         if (error.response?.status === 401) {
@@ -99,66 +118,171 @@ export default function ProfilePage({ params }) {
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="container mx-auto px-4">
-          {/* Profile Header */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-            <div className="flex items-center space-x-4">
-              <div className="relative w-24 h-24">
-                {profile.avatar ? (
-                  <img
-                    src={profile.avatar}
-                    alt={profile.nickname}
-                    className="w-full h-full rounded-full object-cover"
+      <div className="flex flex-col md:flex-row h-screen p-2 md:p-6 gap-4 bg-gray-50">
+        {/* Left Panel */}
+        <div className="w-full md:w-1/4 bg-white p-4 md:p-6 rounded-2xl shadow-lg">
+          <div className="flex flex-col items-center text-center">
+            {profile.avatar ? (
+              <img
+                className="w-20 h-20 md:w-24 md:h-24 mb-4 rounded-full object-cover"
+                src={profile.avatar}
+                alt={profile.nickname}
+              />
+            ) : (
+              <div className="w-20 h-20 md:w-24 md:h-24 mb-4 rounded-full bg-gray-200 flex items-center justify-center">
+                <span className="text-2xl text-gray-500">
+                  {profile.nickname.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
+            <h2 className="text-xl md:text-2xl font-semibold">
+              {profile.nickname}
+            </h2>
+            <p className="text-gray-500">
+              Joined: {new Date(profile.created_at).toLocaleDateString()}
+            </p>
+            {profile.is_verified && (
+              <div className="mt-2 flex items-center text-blue-500">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 mr-1"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
                   />
+                </svg>
+                <span className="text-sm">Verified</span>
+              </div>
+            )}
+          </div>
+          <div className="mt-6">
+            <div className="text-left space-y-2">
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-2">Reviews</h3>
+                {reviews.length > 0 ? (
+                  <>
+                    <p className="text-gray-600">
+                      ⭐ {calculateAverageRating(reviews)}/5
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Based on {reviews.length} reviews
+                    </p>
+                  </>
                 ) : (
-                  <div className="w-full h-full rounded-full bg-gray-200 flex items-center justify-center">
-                    <span className="text-2xl text-gray-500">
-                      {profile.nickname.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
-                {profile.is_verified && (
-                  <div className="absolute bottom-0 right-0 bg-blue-500 text-white rounded-full p-1">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </div>
+                  <p className="text-sm text-gray-500">No reviews yet</p>
                 )}
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-800">
-                  {profile.nickname}
-                </h1>
-                <p className="text-gray-600">
-                  Member since{" "}
-                  {new Date(profile.created_at).toLocaleDateString()}
-                </p>
-              </div>
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Member since:</span>{" "}
+                {new Date(profile.created_at).toLocaleDateString()}
+              </p>
             </div>
           </div>
+        </div>
 
-          {/* Listings Section */}
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Listings</h2>
-            {listings.length === 0 ? (
-              <div className="text-center py-8 bg-white rounded-lg shadow-md">
-                <p className="text-gray-500">No listings found</p>
+        {/* Right Panel */}
+        <div className="w-full md:w-3/4 bg-white p-2 md:p-4 rounded-2xl shadow-lg sm:h-[100%] sm:overflow-scroll">
+          <div className="mb-4 flex justify-between md:justify-start space-x-4 border-b pb-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                className={`p-2 text-base md:text-lg transition ${
+                  activeTab === tab
+                    ? "border-b-2 border-blue-500 font-semibold text-blue-600"
+                    : "text-gray-500 hover:text-gray-800"
+                }`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-lg bg-gray-50">
+            {activeTab === "Listings" && (
+              <div>
+                {listings.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No listings found</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-2">
+                    {listings.map((item) => (
+                      <ListingCard key={item.product_id} item={item} />
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                {listings.map((item) => (
-                  <ListingCard key={item.product_id} item={item} />
-                ))}
+            )}
+            {activeTab === "Reviews" && (
+              <div className="space-y-4">
+                {reviews.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No reviews yet</p>
+                  </div>
+                ) : (
+                  reviews.map((review) => (
+                    <div
+                      key={review.id}
+                      className="bg-white p-4 rounded-lg shadow"
+                    >
+                      <div className="flex items-center mb-2">
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                          <span className="text-gray-500 font-medium">
+                            {review.reviewer_nickname
+                              ?.charAt(0)
+                              .toUpperCase() || "U"}
+                          </span>
+                        </div>
+                        <div>
+                          <Link
+                            href={`/profiles/${review.reviewer_nickname}`}
+                            className="font-medium text-blue-600 hover:text-blue-800"
+                          >
+                            {review.reviewer_nickname || "Anonymous User"}
+                          </Link>
+                          <div className="flex text-yellow-400">
+                            {[...Array(5)].map((_, index) => (
+                              <svg
+                                key={index}
+                                xmlns="http://www.w3.org/2000/svg"
+                                className={`h-4 w-4 ${
+                                  index < review.rating
+                                    ? "text-yellow-400"
+                                    : "text-gray-300"
+                                }`}
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                              >
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                              </svg>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="ml-auto text-sm text-gray-500">
+                          {new Date(review.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-gray-700">
+                        {review.review_text || "No comment provided"}
+                      </p>
+                      {review.reviewed_product_title && (
+                        <div className="mt-2 flex items-center justify-between">
+                          <p className="text-sm text-gray-500">
+                            Product: {review.reviewed_product_title}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Price: ₹{review.reviewed_product_price || "N/A"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>

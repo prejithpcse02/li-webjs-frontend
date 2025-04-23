@@ -7,11 +7,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import api from "@/services/api";
 import Link from "next/link";
+import LikeButton from "./LikeButton";
 
 const ListItem = ({ item }) => {
   const {
-    title,
+    product_id,
     slug,
+    title,
     description,
     price,
     condition,
@@ -20,9 +22,10 @@ const ListItem = ({ item }) => {
     created_at,
     seller_name,
     seller_id,
-    images = [],
+    images,
     main_image,
-    product_id,
+    is_liked: initialIsLiked,
+    likes_count: initialLikesCount,
   } = item;
 
   const [isOpen, setIsOpen] = useState(false);
@@ -32,9 +35,39 @@ const ListItem = ({ item }) => {
   const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [conversationCount, setConversationCount] = useState(
+    item.conversation_count || 0
+  );
+  const [likesCount, setLikesCount] = useState(initialLikesCount);
+  const [isLiked, setIsLiked] = useState(initialIsLiked);
+  const [currentStatus, setCurrentStatus] = useState(status);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  useEffect(() => {
+    // Listen for chat updates
+    const handleChatUpdate = async (event) => {
+      try {
+        // Fetch the latest conversation count
+        const response = await api.get(
+          `/api/listings/${product_id}/conversation-count/`
+        );
+        if (response.data && typeof response.data.count === "number") {
+          setConversationCount(response.data.count);
+        }
+      } catch (error) {
+        console.error("Error updating conversation count:", error);
+      }
+    };
+
+    window.addEventListener("chatUpdated", handleChatUpdate);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("chatUpdated", handleChatUpdate);
+    };
+  }, [product_id]);
 
   // Check if current user is the seller of this listing
-  // Handle different types by parsing the values to ensure consistent comparison
   const attemptToMatch = () => {
     if (!user || !seller_id) {
       console.log("No user or seller_id:", { user, seller_id });
@@ -110,6 +143,93 @@ const ListItem = ({ item }) => {
       console.error("Failed to create/get conversation:", error);
     }
   };
+
+  const handleViewChats = () => {
+    router.push(`/chat?listing=${product_id}`);
+  };
+
+  const handleLikeChange = async (newIsLiked) => {
+    setIsLiked(newIsLiked);
+    setLikesCount((prev) => (newIsLiked ? prev + 1 : prev - 1));
+  };
+
+  const updateListingStatus = async (newStatus) => {
+    if (newStatus === currentStatus) return;
+
+    try {
+      setIsUpdatingStatus(true);
+      console.log("Updating status to:", newStatus);
+      console.log("Product ID:", product_id);
+      console.log("Slug:", slug);
+
+      // Use the correct URL pattern with both slug and product_id
+      const response = await api.patch(
+        `/api/listings/${slug}/${product_id}/status/`,
+        {
+          status: newStatus,
+        }
+      );
+
+      console.log("Status update response:", response.data);
+      setCurrentStatus(response.data.status);
+
+      // Show success message
+      alert(`Status updated to ${response.data.status}`);
+
+      // Refresh the page to show updated status
+      router.refresh();
+    } catch (error) {
+      console.error("Error updating status:", error);
+      if (error.response?.status === 401) {
+        alert("Please log in to update the listing status");
+        router.push("/auth/signin");
+      } else if (error.response?.status === 403) {
+        alert("You do not have permission to update this listing");
+      } else {
+        alert("Failed to update listing status. Please try again.");
+      }
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Add an effect to refresh the current status
+  useEffect(() => {
+    const fetchCurrentStatus = async () => {
+      try {
+        // Only proceed if we have a product_id
+        if (!product_id) {
+          console.log("No product_id available for status check");
+          return;
+        }
+
+        // Try fetching using just product_id first
+        try {
+          const response = await api.get(`/api/listings/${product_id}/`);
+          setCurrentStatus(response.data.status);
+          return;
+        } catch (error) {
+          console.log(
+            "Could not fetch with product_id only, trying with slug..."
+          );
+
+          // If that fails and we have a slug, try with both
+          if (slug) {
+            const response = await api.get(
+              `/api/listings/${slug}/${product_id}/`
+            );
+            setCurrentStatus(response.data.status);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching current status:", error);
+      }
+    };
+
+    if (isOwner) {
+      fetchCurrentStatus();
+    }
+  }, [product_id, slug, isOwner]);
 
   // Handle delete listing
   const handleDelete = async () => {
@@ -341,12 +461,6 @@ const ListItem = ({ item }) => {
 
   return (
     <div className="max-w-6xl mx-auto bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 p-4 sm:p-6 md:p-8 relative">
-      <div className="bg-green-600 text-white px-3 py-1.5 rounded-md w-fit absolute right-5 top-4 z-10 flex justify-center items-center">
-        <span className="text-sm sm:text-md font-medium capitalize flex items-center">
-          {status}
-        </span>
-      </div>
-
       {isOwner && (
         <div className="absolute top-5 left-5 z-10 flex space-x-2">
           <button
@@ -363,24 +477,6 @@ const ListItem = ({ item }) => {
             </svg>
             Edit
           </button>
-          {/*<button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4 mr-1"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            Delete
-          </button>*/}
         </div>
       )}
 
@@ -451,12 +547,107 @@ const ListItem = ({ item }) => {
           <p className="text-gray-600 font-semibold">Pickup Location</p>
           <p className="text-gray-800 font-medium text-sm">{location}</p>
         </div>
-        <button
-          onClick={handleStartChat}
-          className="bg-blue-700 text-white px-4 py-2 rounded-md mt-4 hover:bg-blue-600"
+        <div className="flex flex-col gap-4 mt-4">
+          {isOwner ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2 items-center">
+                <LikeButton
+                  slug={slug}
+                  listingId={product_id}
+                  initialIsLiked={isLiked}
+                  onLikeChange={handleLikeChange}
+                />
+                <button
+                  onClick={handleViewChats}
+                  className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-500"
+                >
+                  Messages
+                </button>
+              </div>
+
+              <div className="flex gap-2 mt-2">
+                {currentStatus === "available" && (
+                  <>
+                    <button
+                      onClick={() => updateListingStatus("pending")}
+                      disabled={isUpdatingStatus}
+                      className="flex-1 py-2.5 px-4 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Pending pickup
+                    </button>
+                    <button
+                      onClick={() => updateListingStatus("sold")}
+                      disabled={isUpdatingStatus}
+                      className="flex-1 py-2.5 px-4 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Mark as Sold
+                    </button>
+                  </>
+                )}
+
+                {currentStatus === "pending" && (
+                  <>
+                    <button
+                      onClick={() => updateListingStatus("available")}
+                      disabled={isUpdatingStatus}
+                      className="flex-1 py-2.5 px-4 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Cancel Pending
+                    </button>
+                    <button
+                      onClick={() => updateListingStatus("sold")}
+                      disabled={isUpdatingStatus}
+                      className="flex-1 py-2.5 px-4 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Mark as Sold
+                    </button>
+                  </>
+                )}
+
+                {currentStatus === "sold" && (
+                  <button
+                    onClick={() => updateListingStatus("available")}
+                    disabled={isUpdatingStatus}
+                    className="flex-1 py-2.5 px-4 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancel Sold
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 items-center">
+              <LikeButton
+                slug={slug}
+                listingId={product_id}
+                initialIsLiked={isLiked}
+                onLikeChange={handleLikeChange}
+              />
+              <button
+                onClick={handleStartChat}
+                className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
+              >
+                Chat with Seller
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div
+          className={`mt-4 text-right ${
+            currentStatus === "pending"
+              ? "text-yellow-600"
+              : currentStatus === "sold"
+              ? "text-red-600"
+              : "text-green-600"
+          } font-semibold`}
         >
-          Make Offer
-        </button>
+          {currentStatus === "pending"
+            ? "Pending pickup"
+            : currentStatus === "sold"
+            ? "Sold"
+            : "Available"}
+        </div>
       </div>
 
       <Dialog
