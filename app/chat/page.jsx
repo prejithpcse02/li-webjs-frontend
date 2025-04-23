@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
 import api from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
 
-export default function ChatListPage() {
+// Client component that uses useSearchParams
+function ChatListContent() {
   const [conversations, setConversations] = useState([]);
   const [listing, setListing] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -98,94 +99,112 @@ export default function ChatListPage() {
                   onClick={() => router.back()}
                   className="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
                 >
-                  X
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
                 </button>
               )}
             </div>
-            <span className="font-semibold text-lg">All Chats</span>
-            <div className="w-10" /> {/* For balance */}
-          </div>
-          <div className="flex items-center gap-3 mt-4">
-            <h1 className="text-lg font-semibold text-gray-800">
-              <span className="text-blue-600">Chats for</span>
-              {listing ? (
-                <span className="text-gray-800 ml-1 line-clamp-1">
-                  {listing.title}
-                </span>
-              ) : (
-                " Your Chats"
-              )}
+            <h1 className="text-xl font-semibold text-gray-800">
+              {listing ? `Chats for ${listing.title}` : "Your Chats"}
             </h1>
+            <div className="w-10" />
           </div>
         </div>
 
-        {/* Conversations List */}
-        <div className="bg-white">
+        {/* Chat List */}
+        <div className="divide-y">
           {filteredConversations.length === 0 ? (
-            <div className="py-16 text-center text-gray-500">
-              <p className="text-lg">
-                {listing
-                  ? "No conversations found for this listing"
-                  : "No conversations yet"}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">
-                {listing
-                  ? "When someone messages about this listing, they'll appear here"
-                  : "Your chat conversations will appear here"}
-              </p>
+            <div className="text-center py-8">
+              <p className="text-gray-500">No conversations found</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
-              {filteredConversations.map((conv) => (
-                <Link key={conv.id} href={`/chat/${conv.id}`}>
-                  <div className="px-4 py-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-start gap-4">
-                      <div className="w-14 h-14 relative flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
+            filteredConversations.map((conversation) => (
+              <Link
+                key={conversation.id}
+                href={`/chat/${conversation.id}`}
+                className="block hover:bg-gray-50 transition-colors"
+              >
+                <div className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="flex-shrink-0">
+                      {conversation.other_participant?.avatar ? (
                         <Image
-                          src={
-                            conv.listing.images[0].image_url ||
-                            "/placeholder-image.jpg"
-                          }
-                          alt={conv.listing.title}
-                          width={56}
-                          height={56}
-                          style={{ objectFit: "cover" }}
+                          src={conversation.other_participant.avatar}
+                          alt={conversation.other_participant.nickname}
+                          width={40}
+                          height={40}
+                          className="rounded-full"
                         />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="font-medium text-gray-900 truncate">
-                            {conv.listing.title}
-                          </h3>
-                          {conv.unread_count > 0 && (
-                            <span className="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded-full font-medium">
-                              {conv.unread_count}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-500 mt-0.5">
-                          with{" "}
-                          <span className="text-blue-600">
-                            {conv.other_participant?.nickname}
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                          <span className="text-gray-500">
+                            {conversation.other_participant?.nickname
+                              ?.charAt(0)
+                              .toUpperCase() || "?"}
                           </span>
-                        </p>
-                        {conv.last_message && (
-                          <p className="text-sm text-gray-600 truncate mt-1">
-                            {conv.last_message.sender.nickname}:{" "}
-                            <span className="text-gray-500">
-                              {conv.last_message.content}
-                            </span>
-                          </p>
-                        )}
-                      </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {conversation.other_participant?.nickname ||
+                          "Unknown User"}
+                      </p>
+                      <p className="text-sm text-gray-500 truncate">
+                        {conversation.listing?.title || "No listing"}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 text-gray-400"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
                     </div>
                   </div>
-                </Link>
-              ))}
-            </div>
+                </div>
+              </Link>
+            ))
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function ChatListPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="text-center px-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-100 border-t-gray-600 mx-auto mb-4" />
+            <p className="text-gray-800 font-medium">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <ChatListContent />
+    </Suspense>
   );
 }
