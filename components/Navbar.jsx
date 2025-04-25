@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import React, { useState } from "react";
@@ -13,6 +15,7 @@ import { FaRegHeart } from "react-icons/fa";
 import SearchBar from "./SearchBar";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import NotificationBell from "./NotificationBell";
 
 const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -112,7 +115,7 @@ const Navbar = () => {
             <span className="ml-1">Add Listing</span>
           </button>
 
-          {user ? (
+          {user && (
             <>
               <Link
                 href="/profile"
@@ -132,6 +135,8 @@ const Navbar = () => {
                 <span className="ml-1">Liked</span>
               </Link>
 
+              <NotificationBell />
+
               <button
                 onClick={handleLogout}
                 className="flex items-center text-red-600 text-sm font-semibold cursor-pointer"
@@ -140,15 +145,6 @@ const Navbar = () => {
                 <span className="ml-1">Logout</span>
               </button>
             </>
-          ) : (
-            <Link
-              href="/auth/signin"
-              className="flex items-center text-gray-600 text-sm font-semibold"
-              onClick={() => setMenuOpen(false)}
-            >
-              <FiUser className="text-lg" />
-              <span className="ml-1">Login</span>
-            </Link>
           )}
         </div>
       </div>
