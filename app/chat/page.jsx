@@ -18,6 +18,42 @@ function ChatListContent() {
   const router = useRouter();
   const listingId = searchParams.get("listing");
 
+  // Format timestamp for last message
+  const formatTimestamp = (date) => {
+    const now = new Date();
+    const messageDate = new Date(date);
+    const diffInMinutes = Math.floor((now - messageDate) / (1000 * 60));
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    const diffInDays = Math.floor(diffInHours / 24);
+
+    if (diffInMinutes < 1) return "Just now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    if (diffInDays < 7) return `${diffInDays}d ago`;
+    return messageDate.toLocaleDateString();
+  };
+
+  // Get last message/offer/review text
+  const getLastActivityText = (conversation) => {
+    if (!conversation.last_message) return "No messages yet";
+
+    if (conversation.last_message.is_offer) {
+      const offer = conversation.last_message.offer;
+      if (offer.status === "Pending") {
+        return `Offer: ₹${offer.price}`;
+      } else if (offer.status === "Accepted") {
+        return `Offer accepted: ₹${offer.price}`;
+      } else if (offer.status === "Rejected") {
+        return `Offer rejected: ₹${offer.price}`;
+      }
+    } else if (conversation.last_message.review_data) {
+      const review = conversation.last_message.review_data;
+      return `${review.reviewer_username} left a ${review.rating}-star review`;
+    } else {
+      return conversation.last_message.content;
+    }
+  };
+
   useEffect(() => {
     async function loadData() {
       if (!user) return;
@@ -93,7 +129,7 @@ function ChatListContent() {
         {/* Header */}
         <div className="py-4 px-4 border-b bg-white sticky top-0 z-10 shadow-sm">
           <div className="flex items-center justify-between">
-            <div className="w-10">
+            <div className="flex items-center gap-3">
               {listingId && (
                 <button
                   onClick={() => router.back()}
@@ -115,9 +151,30 @@ function ChatListContent() {
                   </svg>
                 </button>
               )}
+              {listing && (
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-md overflow-hidden bg-gray-100">
+                    {listing.images?.[0]?.image_url && (
+                      <Image
+                        src={listing.images[0].image_url}
+                        alt={listing.title}
+                        width={40}
+                        height={40}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <h1 className="text-sm font-medium text-gray-900">
+                      {listing.title}
+                    </h1>
+                    <p className="text-xs text-gray-500">₹{listing.price}</p>
+                  </div>
+                </div>
+              )}
             </div>
             <h1 className="text-xl font-semibold text-gray-800">
-              {listing ? `Chats for ${listing.title}` : "Your Chats"}
+              {listing ? "" : "Your Chats"}
             </h1>
             <div className="w-10" />
           </div>
@@ -158,12 +215,21 @@ function ChatListContent() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {conversation.other_participant?.nickname ||
-                          "Unknown User"}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {conversation.other_participant?.nickname ||
+                            "Unknown User"}
+                        </p>
+                        {conversation.last_message && (
+                          <span className="text-xs text-gray-500">
+                            {formatTimestamp(
+                              conversation.last_message.created_at
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500 truncate">
-                        {conversation.listing?.title || "No listing"}
+                        {getLastActivityText(conversation)}
                       </p>
                     </div>
                     <div className="flex-shrink-0">

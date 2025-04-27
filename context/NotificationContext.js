@@ -85,10 +85,13 @@ export function NotificationProvider({ children }) {
   // Set up polling for new notifications
   useEffect(() => {
     if (user) {
+      // Initial fetch
       fetchNotifications();
       fetchUnreadCount();
 
       const interval = setInterval(() => {
+        // Fetch both notifications and unread count during polling
+        fetchNotifications();
         fetchUnreadCount();
       }, 30000); // Poll every 30 seconds
 

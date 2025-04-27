@@ -34,6 +34,8 @@ export default function ChatDetailPage() {
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [isUpdatingOffer, setIsUpdatingOffer] = useState(false);
+  const [isCancellingOffer, setIsCancellingOffer] = useState(false);
   const bottomRef = useRef(null);
   const refreshIntervalRef = useRef(null);
   const emojiPickerRef = useRef(null);
@@ -282,47 +284,6 @@ export default function ChatDetailPage() {
     ));
   }, [cachedMessages]);
 
-  // Optimize review rendering
-  /*const renderReviews = useCallback(() => {
-    if (cachedReviews.length > 0) {
-      return (
-        <div className="bg-white p-4 border-t">
-          <h3 className="text-lg font-semibold mb-3">
-            Reviews for this listing
-          </h3>
-          {cachedReviews.map((review) => (
-            <div key={review.id} className="mb-4 p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-medium text-blue-800">
-                  {review.reviewer_username} left a review
-                </p>
-                <div className="flex gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <span
-                      key={i}
-                      className={
-                        i < review.rating ? "text-yellow-400" : "text-gray-300"
-                      }
-                    >
-                      ★
-                    </span>
-                  ))}
-                </div>
-              </div>
-              {review.review_text && (
-                <p className="text-blue-800 italic">"{review.review_text}"</p>
-              )}
-              <p className="text-sm text-gray-500 mt-2">
-                {dayjs(review.created_at).format("MMM D, YYYY")}
-              </p>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  }, [cachedReviews]);*/
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -369,7 +330,6 @@ export default function ChatDetailPage() {
           // Create new offer in the background
           const res = await api.post("/api/chat/messages/", {
             conversation: parseInt(conversationId),
-            sender_id: user?.id,
             content: `Made offer: ₹${offerAmount}`,
             message_type: "text",
             is_offer: true,
@@ -418,7 +378,6 @@ export default function ChatDetailPage() {
         // Create regular message in the background
         const res = await api.post("/api/chat/messages/", {
           conversation: parseInt(conversationId),
-          sender_id: user?.id,
           content: trimmed,
           message_type: "text",
           is_offer: false,
@@ -456,13 +415,13 @@ export default function ChatDetailPage() {
 
   const amendOffer = async (amount) => {
     try {
+      setIsUpdatingOffer(true);
       // First cancel the existing offer
       await api.post(`/api/offers/${pendingOffer.id}/cancel/`);
 
       // Then create a new offer
       const res = await api.post("/api/chat/messages/", {
         conversation: parseInt(conversationId),
-        sender_id: user?.id,
         content: `Updated offer: ₹${amount}`,
         message_type: "text",
         is_offer: true,
@@ -477,11 +436,14 @@ export default function ChatDetailPage() {
       alert(
         err.response?.data?.error || "Failed to amend offer. Please try again."
       );
+    } finally {
+      setIsUpdatingOffer(false);
     }
   };
 
   const cancelOffer = async (offerId) => {
     try {
+      setIsCancellingOffer(true);
       await api.post(`/api/offers/${offerId}/cancel/`);
       const refreshed = await api.get(
         `/api/chat/conversations/${conversationId}/messages/`
@@ -498,6 +460,8 @@ export default function ChatDetailPage() {
       }
     } catch (err) {
       alert("Cancel failed");
+    } finally {
+      setIsCancellingOffer(false);
     }
   };
 
@@ -1126,10 +1090,19 @@ export default function ChatDetailPage() {
                     </div>
                     <button
                       onClick={() => sendMessage(true, offerAmount)}
-                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-                      disabled={!isValidOffer(offerAmount)}
+                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center min-w-[100px]"
+                      disabled={!isValidOffer(offerAmount) || isUpdatingOffer}
                     >
-                      {showOfferInput ? "Update offer" : "Make offer"}
+                      {isUpdatingOffer ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Updating...
+                        </>
+                      ) : showOfferInput ? (
+                        "Update offer"
+                      ) : (
+                        "Make offer"
+                      )}
                     </button>
                     {showOfferInput && (
                       <button
@@ -1147,9 +1120,17 @@ export default function ChatDetailPage() {
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => cancelOffer(pendingOffer.id)}
-                      className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200"
+                      className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 flex items-center justify-center"
+                      disabled={isCancellingOffer}
                     >
-                      Cancel offer
+                      {isCancellingOffer ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-700 mr-2"></div>
+                          Cancelling...
+                        </>
+                      ) : (
+                        "Cancel offer"
+                      )}
                     </button>
                     <div className="py-2 px-3 bg-gray-100 rounded text-sm font-medium text-gray-700 text-center">
                       ₹{pendingOffer.price}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useNotifications } from "@/context/NotificationContext";
 import { FiBell } from "react-icons/fi";
@@ -11,6 +11,29 @@ export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const { notifications, unreadCount, markAsRead } = useNotifications();
   const router = useRouter();
+  const notificationRef = useRef(null);
+
+  // Handle click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    }
+
+    // Add event listener when the dropdown is open
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    // Clean up
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
 
   const getNotificationIcon = (type) => {
     switch (type) {
@@ -40,22 +63,28 @@ export default function NotificationBell() {
       (notification.notification_type === "like" ||
         notification.notification_type === "price_update" ||
         notification.notification_type === "review" ||
-        notification.notification_type === "item_sold") &&
+        notification.notification_type === "item_sold" ||
+        notification.notification_type === "offer" ||
+        notification.notification_type === "message") &&
       notification.object_id
     ) {
-      router.push(`/listings/${notification.object_id}`);
-    } else if (
-      notification.notification_type === "message" ||
-      notification.notification_type === "offer"
-    ) {
-      if (notification.content_type === "chat.conversation") {
-        router.push(`/chat/${notification.object_id}`);
+      // Split the object_id to get slug and product_id
+      const [slug, product_id] = notification.object_id.split(":");
+      if (slug && product_id) {
+        router.push(`/listings/${slug}/${product_id}`);
+      } else {
+        console.error("Invalid object_id format:", notification.object_id);
       }
     }
   };
 
+  // Sort notifications by created_at in descending order
+  const sortedNotifications = [...notifications].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
+
   return (
-    <div className="relative">
+    <div className="relative" ref={notificationRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-gray-600 hover:text-gray-900 focus:outline-none"
@@ -69,18 +98,18 @@ export default function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5">
+        <div className="absolute right-0 mt-2 w-80 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50">
           <div className="p-2">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-medium">Notifications</h3>
             </div>
             <div className="max-h-96 overflow-y-auto">
-              {notifications.length === 0 ? (
+              {sortedNotifications.length === 0 ? (
                 <p className="text-center text-gray-500 py-4">
                   No notifications
                 </p>
               ) : (
-                notifications.slice(0, 5).map((notification) => (
+                sortedNotifications.slice(0, 5).map((notification) => (
                   <div
                     key={notification.id}
                     onClick={() => handleNotificationClick(notification)}
@@ -103,7 +132,7 @@ export default function NotificationBell() {
                               notification.notification_type
                             )}
                           </span>{" "}
-                          {notification.message}
+                          {notification.text || notification.message}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
                           {formatDistanceToNow(

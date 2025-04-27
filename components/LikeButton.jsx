@@ -17,49 +17,27 @@ const LikeButton = ({ slug, listingId, initialIsLiked, onLikeChange }) => {
   const handleLike = async () => {
     if (isLoading) return;
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/auth/signin");
+      return;
+    }
+
+    // Optimistically update the UI
+    const previousState = isLiked;
+    setIsLiked(!previousState);
+    onLikeChange?.(!previousState);
+
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        router.push("/auth/signin");
-        return;
-      }
-
-      // Log the current state for debugging
-      console.log(
-        `LikeButton: Current state - isLiked: ${isLiked}, listingId: ${listingId}`
+      await listingAPI.toggleLike(slug, listingId, previousState);
+      toast.success(
+        !previousState ? "Added to favorites" : "Removed from favorites"
       );
-
-      try {
-        await listingAPI.toggleLike(slug, listingId, isLiked);
-        // If successful, toggle the state
-        setIsLiked(!isLiked);
-        onLikeChange?.(!isLiked);
-        toast.success(
-          isLiked ? "Removed from favorites" : "Added to favorites"
-        );
-      } catch (error) {
-        // If we get a 400 error saying the listing is already liked/unliked,
-        // we can treat this as a success since the end state is what we want
-        if (error.response?.status === 400) {
-          const errorMessage = error.response.data?.error || "";
-          if (
-            errorMessage.includes("already liked") ||
-            errorMessage.includes("not liked")
-          ) {
-            // The backend state is already what we want, so update our local state
-            setIsLiked(!isLiked);
-            onLikeChange?.(!isLiked);
-            toast.success(
-              isLiked ? "Removed from favorites" : "Added to favorites"
-            );
-            return;
-          }
-        }
-        throw error; // Re-throw other errors to be handled below
-      }
     } catch (error) {
-      console.error("Error toggling like:", error);
+      // Revert the optimistic update on error
+      setIsLiked(previousState);
+      onLikeChange?.(previousState);
 
       if (error.response?.status === 401) {
         localStorage.removeItem("token");

@@ -76,17 +76,17 @@ export default function NotificationsPage() {
       (notification.notification_type === "like" ||
         notification.notification_type === "price_update" ||
         notification.notification_type === "review" ||
-        notification.notification_type === "item_sold") &&
+        notification.notification_type === "item_sold" ||
+        notification.notification_type === "offer" ||
+        notification.notification_type === "message") &&
       notification.object_id
     ) {
-      router.push(`/listings/${notification.object_id}`);
-    } else if (
-      notification.notification_type === "message" ||
-      notification.notification_type === "offer"
-    ) {
-      // If it has chat id, navigate to chat
-      if (notification.content_type === "chat.conversation") {
-        router.push(`/chat/${notification.object_id}`);
+      // Split the object_id to get slug and product_id
+      const [slug, product_id] = notification.object_id.split(":");
+      if (slug && product_id) {
+        router.push(`/listings/${slug}/${product_id}`);
+      } else {
+        console.error("Invalid object_id format:", notification.object_id);
       }
     }
   };

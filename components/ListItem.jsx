@@ -561,7 +561,7 @@ const ListItem = ({ item }) => {
                   onClick={handleViewChats}
                   className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-500"
                 >
-                  Messages
+                  View all chats
                 </button>
               </div>
 
